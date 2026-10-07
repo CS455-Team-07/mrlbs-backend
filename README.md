@@ -70,3 +70,7 @@ Tests use the `test` profile and an in-memory H2 database, so they do not requir
 ## Current status
 
 Initial scaffold only. No booking, concurrency control, authentication, resource management, notifications, waitlists, pricing, or AI functionality has been implemented, and no Jira issues have been created or modified.
+
+## AI Engineering Log
+
+Meaningful AI-assisted engineering work is recorded in [AI_ENGINEERING_LOG.md](AI_ENGINEERING_LOG.md). [AGENTS.md](AGENTS.md) contains the workflow that future AI agents must follow.
