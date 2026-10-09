@@ -1,16 +1,25 @@
 spring:
   application:
     name: mrlbs-backend
+
   profiles:
     default: dev
+
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/mrlbs}
-    username: ${DB_USERNAME:mrlbs}
-    password: ${DB_PASSWORD:}
+    url: jdbc:h2:mem:mrlbs
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: none
+      ddl-auto: create-drop
+    show-sql: true
+
+  h2:
+    console:
+      enabled: true
 
 management:
   endpoints:
