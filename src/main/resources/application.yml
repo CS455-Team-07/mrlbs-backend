@@ -20,6 +20,18 @@ spring:
   h2:
     console:
       enabled: true
+      path: /h2-console
+      settings:
+        web-allow-others: true
+
+  logging:
+    level:
+      org.springframework.boot.autoconfigure.h2: DEBUG
+      org.h2: DEBUG
+
+  # Ensure the app listens on the default port
+  server:
+    port: 8080
 
 management:
   endpoints:
@@ -29,4 +41,4 @@ management:
 
 mrlbs:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}

@@ -19,6 +19,11 @@ public class Resource {
 
     private Integer capacity;
 
+    @Column(nullable = false)
+    private java.math.BigDecimal baseRate;
+    // Admin‑configured time multiplier (null means 1.0)
+    private java.math.BigDecimal mtimeMultiplier;
+
     @OneToOne(
         cascade = CascadeType.ALL,
         orphanRemoval = true
@@ -68,6 +73,23 @@ public class Resource {
     public void setCapacity(Integer capacity) {
         this.capacity = capacity;
     }
+
+    public java.math.BigDecimal getBaseRate() {
+        return baseRate;
+    }
+
+    public void setBaseRate(java.math.BigDecimal baseRate) {
+        this.baseRate = baseRate;
+    }
+
+    public java.math.BigDecimal getMtimeMultiplier() {
+        return mtimeMultiplier;
+    }
+
+    public void setMtimeMultiplier(java.math.BigDecimal mtimeMultiplier) {
+        this.mtimeMultiplier = mtimeMultiplier;
+    }
+
 
     public BookingRule getBookingRule() {
         return bookingRule;
