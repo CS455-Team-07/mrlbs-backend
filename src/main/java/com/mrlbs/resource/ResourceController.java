@@ -29,6 +29,16 @@ public class ResourceController {
         );
     }
 
+    @PutMapping("/{resourceId}")
+    public ResponseEntity<Resource> updateResource(
+            @PathVariable Long resourceId,
+            @RequestBody ResourceUpdateRequest request
+    ) {
+        return ResponseEntity.ok(
+                resourceService.updateResource(resourceId, request)
+        );
+    }
+
     @PutMapping("/{resourceId}/booking-rules")
     public ResponseEntity<Resource> updateBookingRules(
             @PathVariable Long resourceId,

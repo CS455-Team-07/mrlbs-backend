@@ -23,6 +23,42 @@ public class ResourceService {
                         new RuntimeException("Resource not found with id: " + resourceId));
     }
 
+    public Resource updateResource(Long resourceId, ResourceUpdateRequest request) {
+        Resource resource = getResource(resourceId);
+
+        if (request.getName() != null && !request.getName().isBlank()) {
+            resource.setName(request.getName().trim());
+        }
+
+        if (request.getType() != null) {
+            resource.setType(request.getType().trim().isEmpty() ? null : request.getType().trim());
+        }
+
+        if (request.getLocation() != null) {
+            resource.setLocation(request.getLocation().trim().isEmpty() ? null : request.getLocation().trim());
+        }
+
+        if (request.getCapacity() != null) {
+            resource.setCapacity(request.getCapacity());
+        }
+
+        if (request.getBookingRule() != null) {
+            validateRules(request.getBookingRule());
+
+            if (resource.getBookingRule() == null) {
+                resource.setBookingRule(new BookingRule());
+            }
+
+            resource.getBookingRule().setBookingPolicy(request.getBookingRule().getBookingPolicy());
+            resource.getBookingRule().setMinDurationMinutes(request.getBookingRule().getMinDurationMinutes());
+            resource.getBookingRule().setMaxDurationMinutes(request.getBookingRule().getMaxDurationMinutes());
+            resource.getBookingRule().setBufferTimeMinutes(request.getBookingRule().getBufferTimeMinutes());
+            resource.getBookingRule().setMaxBookingsPerMember(request.getBookingRule().getMaxBookingsPerMember());
+        }
+
+        return resourceRepository.save(resource);
+    }
+
     public Resource updateBookingRules(Long resourceId, BookingRule newRules) {
 
         validateRules(newRules);

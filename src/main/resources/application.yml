@@ -1,3 +1,6 @@
+server:
+  port: 8081
+
 spring:
   application:
     name: mrlbs-backend
@@ -6,7 +9,7 @@ spring:
     default: dev
 
   datasource:
-    url: jdbc:h2:mem:mrlbs
+    url: jdbc:h2:file:./data/mrlbs;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
     driver-class-name: org.h2.Driver
     username: sa
     password:
@@ -14,7 +17,7 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: update
     show-sql: true
 
   h2:
