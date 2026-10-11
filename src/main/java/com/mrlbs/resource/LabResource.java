@@ -35,6 +35,9 @@ public class LabResource {
 
     private Integer capacity;
 
+    @Column(name = "base_rate", nullable = false, precision = 10, scale = 2)
+    private BigDecimal baseRate = BigDecimal.ONE;
+
     @Column(name = "minimum_duration_hours", nullable = false, precision = 8, scale = 2)
     private BigDecimal minimumDurationHours = new BigDecimal("1.00");
 
@@ -51,7 +54,8 @@ public class LabResource {
     }
 
     public LabResource(String name, String type, String location, Integer capacity, List<String> rules,
-                       BigDecimal minimumDurationHours, BigDecimal maximumContentionMultiplier) {
+                       BigDecimal minimumDurationHours, BigDecimal maximumContentionMultiplier,
+                       BigDecimal baseRate) {
         this.name = name;
         this.type = type;
         this.location = location;
@@ -59,6 +63,7 @@ public class LabResource {
         this.rules = new ArrayList<>(rules);
         this.minimumDurationHours = minimumDurationHours;
         this.maximumContentionMultiplier = maximumContentionMultiplier;
+        this.baseRate = baseRate;
     }
 
     public UUID getId() {
@@ -83,6 +88,10 @@ public class LabResource {
 
     public BigDecimal getMinimumDurationHours() {
         return minimumDurationHours;
+    }
+
+    public BigDecimal getBaseRate() {
+        return baseRate;
     }
 
     public BigDecimal getMaximumContentionMultiplier() {

@@ -14,6 +14,7 @@ public record ResourceRequest(
         @NotBlank @Size(max = 100) String type,
         @NotBlank @Size(max = 255) String location,
         @Positive Integer capacity,
+        @DecimalMin(value = "0.00") BigDecimal baseRate,
         @DecimalMin(value = "0.01") BigDecimal minimumDurationHours,
         @DecimalMin(value = "0.00") BigDecimal maximumContentionMultiplier,
         @NotEmpty List<@NotBlank @Size(max = 1000) String> rules) {
