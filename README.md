@@ -15,9 +15,11 @@ This repository contains the initial backend scaffold for the CS455 Software Eng
 
 ## Architecture overview
 
-The application uses a standard Maven source layout and a layered package structure under `com.mrlbs`. Web controllers expose REST endpoints, configuration is centralized, and persistence dependencies are present for future repository and entity work. Placeholder packages reserve space for authentication and authorization, booking, resource management, notifications, and AI integration. The frontend is a separate React and TypeScript repository. Future AI processing is expected to use asynchronous workflows.
+The application uses a standard Maven source layout and a layered package structure under `com.mrlbs`. Web controllers expose REST endpoints, configuration is centralized, and persistence uses Spring Data JPA with Flyway migrations. The frontend is a separate React and TypeScript repository. Future AI processing is expected to use asynchronous workflows.
 
-The initial API endpoint is `GET /api/health`. Actuator health is also exposed at `/actuator/health`.
+The API exposes `GET /api/health` and `POST /api/resources`. Actuator health is also exposed at `/actuator/health`. Resource onboarding records a name, type, location, optional positive capacity, and at least one booking rule. The resource and its ordered rules are stored in PostgreSQL through JPA and Flyway.
+
+`POST /api/resources` requires the authenticated Spring Security principal to have the `ROLE_ADMIN` authority. The current scaffold does not yet configure an identity provider or issue user roles, so an authentication integration must supply that authority before administrators can use the endpoint.
 
 ## Prerequisites
 
@@ -32,7 +34,7 @@ The initial API endpoint is `GET /api/health`. Actuator health is also exposed a
 3. From this directory, run `./mvnw spring-boot:run` (macOS/Linux) or `mvnw.cmd spring-boot:run` (Windows).
 4. Check `http://localhost:8080/api/health` for `{"status":"UP"}`.
 
-The development profile is active by default. The initial scaffold does not create or validate application tables (`ddl-auto` is `none`); no application schema is included yet.
+The development profile is active by default. Hibernate schema changes remain disabled (`ddl-auto` is `none`); Flyway applies versioned migrations from `src/main/resources/db/migration`.
 
 ## PostgreSQL configuration
 
@@ -46,6 +48,22 @@ The local defaults expect PostgreSQL on `localhost:5432`, database `mrlbs`, and 
 | `DB_USERNAME` | `mrlbs` | Database username |
 | `DB_PASSWORD` | empty | Database password |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Comma-separated allowed frontend origins for `/api/**` |
+
+## Resource onboarding
+
+Send an authenticated Admin request to `POST /api/resources` with JSON such as:
+
+```json
+{
+  "name": "Confocal Microscope 1",
+  "type": "Microscope",
+  "location": "Biology Building, Room 204",
+  "capacity": 1,
+  "rules": ["Complete safety training before booking", "Bookings are limited to 2 hours"]
+}
+```
+
+Set `capacity` to `null` when the resource has no capacity limit. A successful request returns `201 Created` and the persisted resource, including its generated ID.
 
 ## How to run
 
@@ -69,7 +87,7 @@ Tests use the `test` profile and an in-memory H2 database, so they do not requir
 
 ## Current status
 
-Initial scaffold only. No booking, concurrency control, authentication, resource management, notifications, waitlists, pricing, or AI functionality has been implemented, and no Jira issues have been created or modified.
+Resource onboarding is implemented. Booking, concurrency control, identity-provider integration, resource listing/editing, notifications, waitlists, pricing, and AI functionality remain future work. No Jira issues have been created or modified.
 
 ## AI Engineering Log
 
