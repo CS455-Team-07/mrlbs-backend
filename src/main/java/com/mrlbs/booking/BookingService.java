@@ -122,4 +122,30 @@ public class BookingService {
         creditAccountRepository.save(account);
         return bookingRepository.save(booking);
     }
+
+    @Transactional
+    public Booking cancel(String ownerEmail, UUID bookingId) {
+        Booking booking = bookingRepository.findOwnedBookingForUpdate(bookingId, ownerEmail).orElseThrow(() ->
+                new BookingRejectedException(BookingRejectionReason.BOOKING_NOT_FOUND,
+                        "The requested booking was not found."));
+        boolean cancellableStatus = booking.getStatus() == BookingStatus.CONFIRMED
+                || booking.getStatus() == BookingStatus.PENDING_APPROVAL;
+        if (!cancellableStatus || !booking.getStartTime().isAfter(LocalDateTime.now())) {
+            throw new BookingRejectedException(BookingRejectionReason.BOOKING_NOT_MODIFIABLE,
+                    "This booking can no longer be cancelled.");
+        }
+
+        resourceRepository.findByIdForUpdate(booking.getResource().getId()).orElseThrow(() ->
+                new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
+                        "The requested resource is not available."));
+        if (booking.getStatus() == BookingStatus.CONFIRMED) {
+            CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElseThrow(() ->
+                    new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
+                            "The member credit account is not available."));
+            account.credit(booking.getCreditCost());
+            creditAccountRepository.save(account);
+        }
+        booking.setStatus(BookingStatus.CANCELLED);
+        return bookingRepository.save(booking);
+    }
 }
