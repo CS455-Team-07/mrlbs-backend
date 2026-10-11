@@ -148,6 +148,26 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 **Decision:** Modified.
 
 **Reason:** Authentication remains active and production continues to require a verified IITK hosted-domain claim; the local setting provides a route for development without an institutional Workspace account.
+
+# 2026-10-12 — Default unauthenticated project demo
+
+**Task and context:** The user requested that the website work without Google authentication for now and asked for this to be the normal behavior for teammates.
+
+**Prompt:** The user said to make the website work without authentication because authentication is not a priority, then clarified that no special development-mode steps should be needed for teammates.
+
+**AI output or response:** Changed the backend default to supply a synthetic demo administrator identity while retaining an explicit `AUTH_ENABLED=true` path for Google OIDC and institutional-domain validation.
+
+**Student/team evaluation:** Pending human review.
+
+**Errors, risks, or hallucinations identified:** The demo identity has administrator access and is unsafe for any public deployment. No tests were run.
+
+**Changes made after evaluating the AI output:** Added the request-scoped demo principal filter, disabled Google login by default, allowed omitted OAuth credentials when disabled, and documented how to re-enable institutional authentication.
+
+**Final accepted artifact or output:** Proposed backend default demo identity and `AUTH_ENABLED` switch. Human acceptance is pending.
+
+**Decision:** Modified.
+
+**Reason:** Teammates can use all backend flows without Google setup; institutional OIDC remains available when explicitly enabled.
 # 2026-10-11 — BOOK-81 resource search and availability
 
 **Task and context:** Implement FR-4.1/FR-4.2 resource search filters and a per-resource booked/open availability view.

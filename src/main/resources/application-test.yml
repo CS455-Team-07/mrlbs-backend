@@ -16,3 +16,6 @@ spring:
       ddl-auto: create-drop
   flyway:
     enabled: false
+mrlbs:
+  auth:
+    enabled: true

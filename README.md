@@ -17,7 +17,7 @@ This repository contains the initial backend scaffold for the CS455 Software Eng
 
 The application uses a standard Maven source layout and a layered package structure under `com.mrlbs`. Web controllers expose REST endpoints, configuration is centralized, and persistence uses Spring Data JPA with Flyway migrations. The frontend is a separate React and TypeScript repository. Future AI processing is expected to use asynchronous workflows.
 
-The backend authenticates users with Google OAuth 2.0 / OpenID Connect. A successful sign-in requires a verified Google identity whose signed hosted-domain (`hd`) claim matches the configured institutional domain. The initial domain is `iitk.ac.in`.
+Authentication is disabled by default for the current project demo. The backend supplies a synthetic Demo Admin principal so the website and its API can be used without Google credentials. Before deploying publicly, set `AUTH_ENABLED=true`, configure a Google OAuth client, and use an institutional Google Workspace account. With authentication enabled, access requires a verified Google identity whose signed hosted-domain (`hd`) claim matches the configured institutional domain (`iitk.ac.in` by default).
 
 The API exposes `GET /api/health`, `GET /api/auth/me`, `GET /api/auth/csrf`, and `POST /api/resources`. Business API endpoints require authentication except health and CSRF-token retrieval. The OAuth protocol endpoints are public so Google can complete the redirect flow. Actuator health is also exposed at `/actuator/health`. Resource onboarding records a name, type, location, optional positive capacity, and at least one booking rule. The resource and its ordered rules are stored in PostgreSQL through JPA and Flyway.
 
@@ -31,13 +31,12 @@ The API exposes `GET /api/health`, `GET /api/auth/me`, `GET /api/auth/csrf`, and
 
 ## Local setup
 
-1. Create a PostgreSQL database and user (or use an existing local PostgreSQL instance).
-2. Create a Google OAuth 2.0 Web application client. Add `http://localhost:8080/login/oauth2/code/google` as an authorized redirect URI.
-3. Set the database and Google OAuth environment variables described below.
-4. From this directory, run `./mvnw spring-boot:run` (macOS/Linux) or `mvnw.cmd spring-boot:run` (Windows).
-5. Open `http://localhost:5173/login` and choose **Continue with Google**.
+1. No database or Google credentials are needed for the default demo. The development profile uses an in-memory H2 database and a demo administrator identity.
+2. From this directory, run `./mvnw spring-boot:run` (macOS/Linux) or `mvnw.cmd spring-boot:run` (Windows).
+3. Start the frontend and open `http://localhost:5173`.
+4. To use PostgreSQL instead, set the database environment variables below. To restore Google authentication, set `AUTH_ENABLED=true`, configure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register `http://localhost:8080/login/oauth2/code/google` as an authorized redirect URI.
 
-The development profile is active by default. Hibernate schema changes remain disabled (`ddl-auto` is `none`); Flyway applies versioned migrations from `src/main/resources/db/migration`.
+The development profile is active by default. It uses H2 with Hibernate schema updates for local demo data; the in-memory database resets when the backend stops. PostgreSQL deployments use Flyway migrations from `src/main/resources/db/migration`.
 
 If you do not have an IITK Google Workspace account, local development can temporarily accept any verified Google account by setting `DEV_ALLOW_ANY_GOOGLE_DOMAIN=true` in the backend process environment. This setting only relaxes the institutional hosted-domain check while the `dev` profile is active; Google OIDC and verified-email checks remain enabled. It defaults to `false`, is ignored outside the `dev` profile, and must never be enabled in a production deployment. Restart the backend after changing it.
 
@@ -53,13 +52,14 @@ The local defaults expect PostgreSQL on `localhost:5432`, database `mrlbs`, and 
 | `DB_USERNAME` | `mrlbs` | Database username |
 | `DB_PASSWORD` | empty | Database password |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Comma-separated allowed frontend origins for `/api/**` |
-| `GOOGLE_CLIENT_ID` | required | Client ID for the Google OAuth 2.0 Web application |
-| `GOOGLE_CLIENT_SECRET` | required | Client secret for the Google OAuth 2.0 Web application |
+| `AUTH_ENABLED` | `false` | Enable Google OIDC authentication instead of the demo identity |
+| `GOOGLE_CLIENT_ID` | not required when auth is disabled | Client ID for the Google OAuth 2.0 Web application |
+| `GOOGLE_CLIENT_SECRET` | not required when auth is disabled | Client secret for the Google OAuth 2.0 Web application |
 | `INSTITUTIONAL_DOMAIN` | `iitk.ac.in` | Required Google Workspace hosted domain |
 | `DEV_ALLOW_ANY_GOOGLE_DOMAIN` | `false` | Local development only: accept a verified Google identity without the institutional hosted-domain claim when the `dev` profile is active |
 | `FRONTEND_BASE_URL` | `http://localhost:5173` | Frontend URL for returning after OAuth login |
 
-For production, register the HTTPS backend callback URI with Google and configure the OAuth client credentials through the deployment secret manager. The Google authorization request includes the configured `hd` value to guide account selection, but access is granted only after the backend validates the signed ID token claims.
+The demo identity has administrator access and is suitable only for a controlled project demo. Do not expose the default no-auth configuration publicly. For production, set `AUTH_ENABLED=true`, register the HTTPS backend callback URI with Google, and configure OAuth credentials through the deployment secret manager. The Google authorization request includes the configured `hd` value to guide account selection, while the backend validates the signed ID token claims.
 
 ## Resource onboarding
 

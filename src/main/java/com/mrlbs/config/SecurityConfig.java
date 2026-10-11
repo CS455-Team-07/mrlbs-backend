@@ -1,5 +1,6 @@
 package com.mrlbs.config;
 
+import com.mrlbs.security.DemoAuthenticationFilter;
 import com.mrlbs.security.InstitutionalOidcUserService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -14,6 +15,7 @@ import org.springframework.security.oauth2.client.web.DefaultOAuth2Authorization
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
@@ -44,6 +46,7 @@ public class SecurityConfig {
             HttpSecurity http,
             InstitutionalOidcUserService institutionalOidcUserService,
             OAuth2AuthorizationRequestResolver googleAuthorizationRequestResolver,
+            @Value("${mrlbs.auth.enabled:false}") boolean authenticationEnabled,
             @Value("${mrlbs.auth.frontend-base-url}") String frontendBaseUrl) throws Exception {
         String frontendUrl = frontendBaseUrl.replaceAll("/+$", "");
 
@@ -62,8 +65,10 @@ public class SecurityConfig {
                                 "/api/auth/csrf")
                         .permitAll()
                         .anyRequest()
-                        .authenticated())
-                .oauth2Login(oauth2 -> oauth2
+                        .authenticated());
+
+        if (authenticationEnabled) {
+            http.oauth2Login(oauth2 -> oauth2
                         .authorizationEndpoint(authorization -> authorization
                                 .authorizationRequestResolver(googleAuthorizationRequestResolver))
                         .userInfoEndpoint(userInfo -> userInfo
@@ -79,6 +84,9 @@ public class SecurityConfig {
                             }
                             response.sendRedirect(frontendUrl + "/login?error=" + error);
                         }));
+        } else {
+            http.addFilterBefore(new DemoAuthenticationFilter(), AnonymousAuthenticationFilter.class);
+        }
 
         return http.build();
     }
