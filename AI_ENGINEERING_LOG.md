@@ -223,3 +223,22 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 **Decision:** Modified.
 
 **Reason:** The transaction retains the original booking until all replacement-slot and credit checks pass.
+# 2026-10-11 — BOOK-88 prevent post-start booking changes
+
+**Task and context:** Implement FR-6.3 by rejecting modification and cancellation after a booking starts or enters a completed/in-progress state.
+
+**Prompt:** Complete Teja Satvik's assigned tickets through Sprint 3 with stacked PRs and extensive tests.
+
+**AI output or response:** Added a locked owner booking cancellation operation that checks start time and status, serializes slot release through the resource lock, and refunds credits only for a confirmed booking.
+
+**Student/team evaluation:** Pending human review.
+
+**Errors, risks, or hallucinations identified:** The current application has no separate occupant check-in workflow; the status guard handles IN_PROGRESS and COMPLETED, and the scheduled start time remains the authoritative boundary.
+
+**Changes made after evaluating the AI output:** Added service coverage for post-start denial, COMPLETED/IN_PROGRESS denial for both modification and cancellation, confirmed-booking refund, and pending cancellation without refund.
+
+**Final accepted artifact or output:** Proposed BOOK-88 post-start protection and cancellation endpoint. Human acceptance is pending.
+
+**Decision:** Modified.
+
+**Reason:** Modification and cancellation now preserve terminal/in-progress states and do not release a slot after its start time.

@@ -6,6 +6,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -42,6 +43,12 @@ public class BookingController {
                                             @PathVariable java.util.UUID bookingId,
                                             @Valid @RequestBody BookingTimeWindowRequest request) {
         return BookingResponse.from(bookingService.modifyTimeWindow(user.getEmail(), bookingId, request));
+    }
+
+    @DeleteMapping("/{bookingId}")
+    public BookingResponse cancel(@AuthenticationPrincipal OidcUser user,
+                                  @PathVariable java.util.UUID bookingId) {
+        return BookingResponse.from(bookingService.cancel(user.getEmail(), bookingId));
     }
 
     @GetMapping("/pending-approval")
