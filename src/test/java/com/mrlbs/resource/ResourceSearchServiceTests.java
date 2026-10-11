@@ -1,0 +1,92 @@
+package com.mrlbs.resource;
+
+import com.mrlbs.booking.Booking;
+import com.mrlbs.booking.BookingRepository;
+import com.mrlbs.booking.BookingStatus;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class ResourceSearchServiceTests {
+    @Mock ResourceRepository resourceRepository;
+    @Mock BookingRepository bookingRepository;
+    private ResourceSearchService service;
+
+    @BeforeEach
+    void setUp() { service = new ResourceSearchService(resourceRepository, bookingRepository); }
+
+    @Test
+    void searchesByTypeAndCapacityAndShowsDateAvailability() {
+        UUID id = UUID.randomUUID();
+        LabResource resource = resource(id, "Confocal Microscope", "Microscope", 3);
+        LocalDate date = LocalDate.of(2030, 5, 1);
+        when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+                .thenReturn(List.of(resource));
+        when(bookingRepository.findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
+                eq(id), eq(BookingStatus.CONFIRMED), any(), any())).thenReturn(Optional.empty());
+
+        var results = service.search("micro", date, 2);
+
+        assertEquals(1, results.size());
+        assertEquals("Confocal Microscope", results.getFirst().name());
+        assertTrue(results.getFirst().available());
+    }
+
+    @Test
+    void reportsBookedIntervalsAndOpenGapsForSelectedDate() {
+        UUID id = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2030, 5, 1);
+        LabResource resource = resource(id, "Microscope", "Microscope", 3);
+        Booking booking = new Booking("hidden@iitk.ac.in", resource,
+                date.atTime(10, 0), date.atTime(11, 30), BookingStatus.CONFIRMED, BigDecimal.TEN);
+        when(resourceRepository.findById(id)).thenReturn(Optional.of(resource));
+        when(bookingRepository.findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
+                id, BookingStatus.CONFIRMED, date.plusDays(1).atStartOfDay(), date.atStartOfDay()))
+                .thenReturn(List.of(booking));
+
+        var response = service.availability(id, date);
+
+        assertEquals(1, response.bookedSlots().size());
+        assertEquals(date.atTime(10, 0), response.bookedSlots().getFirst().startTime());
+        assertEquals(2, response.availableSlots().size());
+        assertEquals(date.atStartOfDay(), response.availableSlots().getFirst().startTime());
+        assertEquals(date.atTime(10, 0), response.availableSlots().getFirst().endTime());
+        assertEquals(date.atTime(11, 30), response.availableSlots().getLast().startTime());
+        assertEquals(date.plusDays(1).atStartOfDay(), response.availableSlots().getLast().endTime());
+        assertFalse(response.toString().contains("hidden@iitk.ac.in"));
+    }
+
+    @Test
+    void rejectsAvailabilityForUnknownResource() {
+        UUID id = UUID.randomUUID();
+        when(resourceRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.availability(id, LocalDate.of(2030, 5, 1)));
+    }
+
+    private static LabResource resource(UUID id, String name, String type, int capacity) {
+        return new LabResource(name, type, "Building A", capacity, List.of("Safety rules"),
+                BigDecimal.ONE, new BigDecimal("3"), BigDecimal.ONE) {
+            @Override public UUID getId() { return id; }
+        };
+    }
+}
