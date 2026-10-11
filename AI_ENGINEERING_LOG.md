@@ -128,6 +128,26 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 **Decision:** Modified.
 
 **Reason:** The API returns explicit rejection reasons and the service avoids writes before the balance check; the account lock and transaction ensure balance/booking updates commit together.
+
+# 2026-10-12 — Local Google OAuth workaround without IITK Workspace access
+
+**Task and context:** The user does not have an IITK Google Workspace account and asked for an authentication workaround or removal of authentication.
+
+**Prompt:** The user said they do not have an IITK Google Workspace account and need a workaround for authentication, or to remove authentication.
+
+**AI output or response:** Added an explicit local-development setting that permits any verified Google account while retaining Google OIDC and verified-email checks. Kept the institutional hosted-domain check enabled by default and outside the `dev` profile.
+
+**Student/team evaluation:** Pending human review.
+
+**Errors, risks, or hallucinations identified:** No tests were run. The workaround is suitable only for local development; enabling it in a production profile is not supported and must be avoided.
+
+**Changes made after evaluating the AI output:** Added the `DEV_ALLOW_ANY_GOOGLE_DOMAIN` setting, guarded it by the active `dev` profile, omitted Google's `hd` account-selection hint only when that development setting is enabled, and documented local use.
+
+**Final accepted artifact or output:** Proposed local-only Google domain-check bypass configuration and setup documentation. Human acceptance is pending.
+
+**Decision:** Modified.
+
+**Reason:** Authentication remains active and production continues to require a verified IITK hosted-domain claim; the local setting provides a route for development without an institutional Workspace account.
 # 2026-10-11 — BOOK-81 resource search and availability
 
 **Task and context:** Implement FR-4.1/FR-4.2 resource search filters and a per-resource booked/open availability view.

@@ -4,6 +4,8 @@ import com.mrlbs.security.InstitutionalOidcUserService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -22,12 +24,18 @@ public class SecurityConfig {
     @Bean
     OAuth2AuthorizationRequestResolver googleAuthorizationRequestResolver(
             ClientRegistrationRepository clientRegistrationRepository,
-            @Value("${mrlbs.auth.institutional-domain}") String institutionalDomain) {
+            @Value("${mrlbs.auth.institutional-domain}") String institutionalDomain,
+            @Value("${mrlbs.auth.dev-allow-any-google-domain:false}") boolean devAllowAnyGoogleDomain,
+            Environment environment) {
         DefaultOAuth2AuthorizationRequestResolver resolver = new DefaultOAuth2AuthorizationRequestResolver(
                 clientRegistrationRepository,
                 "/oauth2/authorization");
-        resolver.setAuthorizationRequestCustomizer(customizer -> customizer
-                .additionalParameters(parameters -> parameters.put("hd", institutionalDomain)));
+        boolean allowDevelopmentDomainBypass = devAllowAnyGoogleDomain
+                && environment.acceptsProfiles(Profiles.of("dev"));
+        if (!allowDevelopmentDomainBypass) {
+            resolver.setAuthorizationRequestCustomizer(customizer -> customizer
+                    .additionalParameters(parameters -> parameters.put("hd", institutionalDomain)));
+        }
         return resolver;
     }
 
