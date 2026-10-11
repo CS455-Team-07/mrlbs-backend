@@ -66,5 +66,6 @@ public class Booking {
     public BigDecimal getCreditCost() { return creditCost; }
     public void setStartTime(LocalDateTime startTime) { this.startTime = startTime; }
     public void setEndTime(LocalDateTime endTime) { this.endTime = endTime; }
+    public void setCreditCost(BigDecimal creditCost) { this.creditCost = creditCost; }
     public void setStatus(BookingStatus status) { this.status = status; }
 }

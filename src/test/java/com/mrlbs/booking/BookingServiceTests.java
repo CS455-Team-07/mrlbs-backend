@@ -60,7 +60,7 @@ class BookingServiceTests {
 
     @Test
     void rejectsUnknownResourceWithStableReasonCode() {
-        when(resourceRepository.findById(resourceId)).thenReturn(Optional.empty());
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.empty());
         var start = LocalDateTime.now().plusDays(1);
 
         var rejected = assertThrows(BookingRejectedException.class,
@@ -72,7 +72,7 @@ class BookingServiceTests {
 
     @Test
     void insufficientCreditsRejectsWithoutSavingBookingOrChangingBalance() {
-        when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
         CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("3"));
         when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
         var start = LocalDateTime.now().plusDays(1);
@@ -88,7 +88,7 @@ class BookingServiceTests {
 
     @Test
     void successfulSubmissionPersistsConfirmedBookingAndDebitsTheCalculatedCost() {
-        when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
         CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("10"));
         when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
         when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -104,11 +104,12 @@ class BookingServiceTests {
         verify(bookingRepository).save(captor.capture());
         assertEquals("member@iitk.ac.in", captor.getValue().getOwnerEmail());
         verify(creditAccountRepository).save(account);
+        verify(resourceRepository).findByIdForUpdate(resourceId);
     }
 
     @Test
     void missingCreditAccountIsRejectedAsInsufficientCredits() {
-        when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
         when(creditAccountRepository.findForUpdate("new@iitk.ac.in")).thenReturn(Optional.empty());
         var start = LocalDateTime.now().plusDays(1);
 
@@ -121,7 +122,7 @@ class BookingServiceTests {
 
     @Test
     void approvalRequiredResourceCreatesPendingBookingWithoutDebitingCredits() {
-        when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
         when(resource.isApprovalRequired()).thenReturn(true);
         CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("10"));
         when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
@@ -143,5 +144,228 @@ class BookingServiceTests {
 
         assertEquals(java.util.List.of(), service.pendingApprovals());
         verify(bookingRepository).findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL);
+    }
+
+    @Test
+    void rejectsConfirmedOverlapAfterAcquiringResourceLockAndBeforeWriting() {
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
+        when(bookingRepository.findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
+                any(), org.mockito.ArgumentMatchers.eq(BookingStatus.CONFIRMED), any(), any()))
+                .thenReturn(Optional.of(mock(Booking.class)));
+        var start = LocalDateTime.now().plusDays(1).withHour(10).withMinute(0);
+
+        var rejected = assertThrows(BookingRejectedException.class,
+                () -> service.submit("member@iitk.ac.in", new BookingRequest(resourceId, start, start.plusHours(1))));
+
+        assertEquals(BookingRejectionReason.SLOT_NO_LONGER_AVAILABLE, rejected.getReason());
+        verify(resourceRepository).findByIdForUpdate(resourceId);
+        verify(bookingRepository, never()).save(any());
+        verify(creditAccountRepository, never()).findForUpdate(any());
+    }
+
+    @Test
+    void successfulModificationSecuresNewResourceSlotThenUpdatesWindowAndPrice() {
+        UUID bookingId = UUID.randomUUID();
+        Booking booking = modifiableBooking(bookingId);
+        when(bookingRepository.findOwnedBookingForUpdate(bookingId, "member@iitk.ac.in"))
+                .thenReturn(Optional.of(booking));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
+        LocalDateTime start = newTime();
+        when(bookingRepository.findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
+                resourceId, BookingStatus.CONFIRMED, start.plusHours(2), start, bookingId))
+                .thenReturn(Optional.empty());
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("10"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+        when(bookingRepository.save(booking)).thenReturn(booking);
+        Booking updated = service.modifyTimeWindow("member@iitk.ac.in", bookingId,
+                new BookingTimeWindowRequest(start, start.plusHours(2)));
+
+        assertEquals(booking, updated);
+        verify(booking).setStartTime(start);
+        verify(booking).setEndTime(start.plusHours(2));
+        verify(booking).setCreditCost(new BigDecimal("8"));
+        assertEquals(new BigDecimal("6"), account.getBalance());
+        verify(resourceRepository).findByIdForUpdate(resourceId);
+        verify(creditAccountRepository).save(account);
+        verify(bookingRepository).save(booking);
+    }
+
+    @Test
+    void unavailableReplacementSlotLeavesOriginalBookingAndCreditsUntouched() {
+        UUID bookingId = UUID.randomUUID();
+        Booking booking = modifiableBooking(bookingId);
+        when(bookingRepository.findOwnedBookingForUpdate(bookingId, "member@iitk.ac.in"))
+                .thenReturn(Optional.of(booking));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
+        LocalDateTime start = newTime();
+        when(bookingRepository.findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
+                resourceId, BookingStatus.CONFIRMED, start.plusHours(1), start, bookingId))
+                .thenReturn(Optional.of(mock(Booking.class)));
+
+        var rejected = assertThrows(BookingRejectedException.class, () -> service.modifyTimeWindow(
+                "member@iitk.ac.in", bookingId, new BookingTimeWindowRequest(start, start.plusHours(1))));
+
+        assertEquals(BookingRejectionReason.SLOT_NO_LONGER_AVAILABLE, rejected.getReason());
+        verify(booking, never()).setStartTime(any());
+        verify(booking, never()).setEndTime(any());
+        verify(bookingRepository, never()).save(any());
+        verify(creditAccountRepository, never()).findForUpdate(any());
+    }
+
+    @Test
+    void modificationAfterOriginalStartIsRejectedBeforeAcquiringReplacementSlot() {
+        UUID bookingId = UUID.randomUUID();
+        Booking booking = mock(Booking.class);
+        when(booking.getStatus()).thenReturn(BookingStatus.CONFIRMED);
+        when(booking.getStartTime()).thenReturn(LocalDateTime.now().minusMinutes(1));
+        when(bookingRepository.findOwnedBookingForUpdate(bookingId, "member@iitk.ac.in"))
+                .thenReturn(Optional.of(booking));
+
+        var rejected = assertThrows(BookingRejectedException.class, () -> service.modifyTimeWindow(
+                "member@iitk.ac.in", bookingId, new BookingTimeWindowRequest(newTime(), newTime().plusHours(1))));
+
+        assertEquals(BookingRejectionReason.BOOKING_NOT_MODIFIABLE, rejected.getReason());
+        verify(resourceRepository, never()).findByIdForUpdate(any());
+        verify(bookingRepository, never()).save(any());
+    }
+
+    @Test
+    void insufficientCreditsForMoreExpensiveWindowPreservesOriginalBooking() {
+        UUID bookingId = UUID.randomUUID();
+        Booking booking = modifiableBooking(bookingId);
+        when(bookingRepository.findOwnedBookingForUpdate(bookingId, "member@iitk.ac.in"))
+                .thenReturn(Optional.of(booking));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
+        LocalDateTime start = newTime();
+        when(bookingRepository.findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
+                resourceId, BookingStatus.CONFIRMED, start.plusHours(2), start, bookingId))
+                .thenReturn(Optional.empty());
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("3"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+
+        var rejected = assertThrows(BookingRejectedException.class, () -> service.modifyTimeWindow(
+                "member@iitk.ac.in", bookingId, new BookingTimeWindowRequest(start, start.plusHours(2))));
+
+        assertEquals(BookingRejectionReason.INSUFFICIENT_CREDITS, rejected.getReason());
+        assertEquals(new BigDecimal("3"), account.getBalance());
+        verify(booking, never()).setStartTime(any());
+        verify(booking, never()).setEndTime(any());
+        verify(bookingRepository, never()).save(any());
+        verify(creditAccountRepository, never()).save(any());
+    }
+
+    @Test
+    void memberCanCancelBeforeStartAndReceivesCreditRefund() {
+        UUID bookingId = UUID.randomUUID();
+        Booking booking = modifiableBooking(bookingId);
+        when(bookingRepository.findOwnedBookingForUpdate(bookingId, "member@iitk.ac.in"))
+                .thenReturn(Optional.of(booking));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("6"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+        when(bookingRepository.save(booking)).thenReturn(booking);
+
+        Booking cancelled = service.cancel("member@iitk.ac.in", bookingId);
+
+        assertEquals(booking, cancelled);
+        verify(booking).setStatus(BookingStatus.CANCELLED);
+        assertEquals(new BigDecimal("10"), account.getBalance());
+        verify(resourceRepository).findByIdForUpdate(resourceId);
+        verify(creditAccountRepository).save(account);
+        verify(bookingRepository).save(booking);
+    }
+
+    @Test
+    void cancellationAfterScheduledStartDoesNotChangeBookingOrCredits() {
+        UUID bookingId = UUID.randomUUID();
+        Booking booking = mock(Booking.class);
+        when(booking.getStatus()).thenReturn(BookingStatus.CONFIRMED);
+        when(booking.getStartTime()).thenReturn(LocalDateTime.now().minusMinutes(1));
+        when(bookingRepository.findOwnedBookingForUpdate(bookingId, "member@iitk.ac.in"))
+                .thenReturn(Optional.of(booking));
+
+        var rejected = assertThrows(BookingRejectedException.class,
+                () -> service.cancel("member@iitk.ac.in", bookingId));
+
+        assertEquals(BookingRejectionReason.BOOKING_NOT_MODIFIABLE, rejected.getReason());
+        verify(booking, never()).setStatus(any());
+        verify(resourceRepository, never()).findByIdForUpdate(any());
+        verify(creditAccountRepository, never()).findForUpdate(any());
+        verify(bookingRepository, never()).save(any());
+    }
+
+    @Test
+    void completedAndInProgressBookingsCannotBeCancelledEvenIfTheirTimesAreFuture() {
+        for (BookingStatus status : java.util.List.of(BookingStatus.COMPLETED, BookingStatus.IN_PROGRESS)) {
+            UUID bookingId = UUID.randomUUID();
+            Booking booking = mock(Booking.class);
+            when(booking.getStatus()).thenReturn(status);
+            lenient().when(bookingRepository.findOwnedBookingForUpdate(bookingId, "member@iitk.ac.in"))
+                    .thenReturn(Optional.of(booking));
+
+            var rejected = assertThrows(BookingRejectedException.class,
+                    () -> service.cancel("member@iitk.ac.in", bookingId));
+
+            assertEquals(BookingRejectionReason.BOOKING_NOT_MODIFIABLE, rejected.getReason());
+            verify(booking, never()).setStatus(any());
+        }
+        verify(resourceRepository, never()).findByIdForUpdate(any());
+        verify(creditAccountRepository, never()).findForUpdate(any());
+        verify(bookingRepository, never()).save(any());
+    }
+
+    @Test
+    void pendingApprovalCanBeCancelledWithoutRefundingUnchargedCredits() {
+        UUID bookingId = UUID.randomUUID();
+        Booking booking = modifiableBooking(bookingId);
+        when(booking.getStatus()).thenReturn(BookingStatus.PENDING_APPROVAL);
+        when(bookingRepository.findOwnedBookingForUpdate(bookingId, "member@iitk.ac.in"))
+                .thenReturn(Optional.of(booking));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
+        when(bookingRepository.save(booking)).thenReturn(booking);
+
+        service.cancel("member@iitk.ac.in", bookingId);
+
+        verify(booking).setStatus(BookingStatus.CANCELLED);
+        verify(creditAccountRepository, never()).findForUpdate(any());
+        verify(creditAccountRepository, never()).save(any());
+        verify(bookingRepository).save(booking);
+    }
+
+    @Test
+    void completedAndInProgressBookingsCannotBeModified() {
+        for (BookingStatus status : java.util.List.of(BookingStatus.COMPLETED, BookingStatus.IN_PROGRESS)) {
+            UUID bookingId = UUID.randomUUID();
+            Booking booking = mock(Booking.class);
+            when(booking.getStatus()).thenReturn(status);
+            lenient().when(bookingRepository.findOwnedBookingForUpdate(bookingId, "member@iitk.ac.in"))
+                    .thenReturn(Optional.of(booking));
+
+            var rejected = assertThrows(BookingRejectedException.class, () -> service.modifyTimeWindow(
+                    "member@iitk.ac.in", bookingId,
+                    new BookingTimeWindowRequest(newTime(), newTime().plusHours(1))));
+
+            assertEquals(BookingRejectionReason.BOOKING_NOT_MODIFIABLE, rejected.getReason());
+            verify(booking, never()).setStartTime(any());
+            verify(booking, never()).setEndTime(any());
+        }
+        verify(resourceRepository, never()).findByIdForUpdate(any());
+        verify(bookingRepository, never()).save(any());
+    }
+
+    private Booking modifiableBooking(UUID id) {
+        Booking booking = mock(Booking.class);
+        lenient().when(booking.getId()).thenReturn(id);
+        lenient().when(booking.getOwnerEmail()).thenReturn("member@iitk.ac.in");
+        lenient().when(booking.getResource()).thenReturn(resource);
+        lenient().when(booking.getStartTime()).thenReturn(LocalDateTime.now().plusDays(3));
+        lenient().when(booking.getEndTime()).thenReturn(LocalDateTime.now().plusDays(3).plusHours(1));
+        lenient().when(booking.getStatus()).thenReturn(BookingStatus.CONFIRMED);
+        lenient().when(booking.getCreditCost()).thenReturn(new BigDecimal("4"));
+        return booking;
+    }
+
+    private LocalDateTime newTime() {
+        return LocalDateTime.now().plusDays(5).withHour(10).withMinute(0).withSecond(0).withNano(0);
     }
 }
