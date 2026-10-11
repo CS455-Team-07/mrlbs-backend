@@ -21,3 +21,10 @@ target/
 .DS_Store
 Thumbs.db
 .tools/
+# Local database files
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Local environment configuration
+postgres.local.env
