@@ -204,3 +204,22 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 **Decision:** Modified.
 
 **Reason:** Concurrency behavior now has repeatable persistence-level regression coverage in addition to the lock and overlap unit tests.
+# 2026-10-11 — BOOK-86 atomic booking time modification
+
+**Task and context:** Implement FR-6.1 so a member can change a future booking only after the requested replacement window is validated and locked.
+
+**Prompt:** Complete Teja Satvik's assigned backlog through Sprint 3 in stacked pull requests with extensive tests.
+
+**AI output or response:** Added an owner-scoped booking row lock, resource row lock, overlap check excluding the current booking, replacement pricing, and a transactional time-window update.
+
+**Student/team evaluation:** Pending human review.
+
+**Errors, risks, or hallucinations identified:** Current booking state uses the existing CONFIRMED status; pending approval bookings are not modifiable in this workflow.
+
+**Changes made after evaluating the AI output:** Added service tests for successful repricing, conflict preservation, post-start rejection, and insufficient-credit preservation.
+
+**Final accepted artifact or output:** Proposed BOOK-86 member booking modification endpoint and tests. Human acceptance is pending.
+
+**Decision:** Modified.
+
+**Reason:** The transaction retains the original booking until all replacement-slot and credit checks pass.
