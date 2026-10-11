@@ -67,6 +67,33 @@ class ResourceControllerTests {
     }
 
     @Test
+    void adminCanPersistPricingDurationFloorAndContentionCap() throws Exception {
+        mockMvc.perform(post("/api/resources")
+                        .with(user("admin").roles("ADMIN"))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Laser Cutter",
+                                  "type": "Fabrication",
+                                  "location": "Workshop 4",
+                                  "rules": ["Safety training required"],
+                                  "minimumDurationHours": 1.5,
+                                  "maximumContentionMultiplier": 2.5
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.minimumDurationHours").value(1.5))
+                .andExpect(jsonPath("$.maximumContentionMultiplier").value(2.5));
+
+        var resource = resourceRepository.findAll().getFirst();
+        org.assertj.core.api.Assertions.assertThat(resource.getMinimumDurationHours())
+                .isEqualByComparingTo("1.5");
+        org.assertj.core.api.Assertions.assertThat(resource.getMaximumContentionMultiplier())
+                .isEqualByComparingTo("2.5");
+    }
+
+    @Test
     void memberCannotCreateResource() throws Exception {
         mockMvc.perform(post("/api/resources")
                         .with(user("member").roles("MEMBER"))

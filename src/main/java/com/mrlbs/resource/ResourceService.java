@@ -3,6 +3,8 @@ package com.mrlbs.resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+
 @Service
 public class ResourceService {
 
@@ -19,7 +21,9 @@ public class ResourceService {
                 request.type().trim(),
                 request.location().trim(),
                 request.capacity(),
-                request.rules().stream().map(String::trim).toList());
+                request.rules().stream().map(String::trim).toList(),
+                request.minimumDurationHours() == null ? new BigDecimal("1.00") : request.minimumDurationHours(),
+                request.maximumContentionMultiplier() == null ? new BigDecimal("3.00") : request.maximumContentionMultiplier());
 
         return resourceRepository.save(resource);
     }
