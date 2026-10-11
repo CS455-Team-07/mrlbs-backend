@@ -4,8 +4,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.util.Objects;
+import org.springframework.stereotype.Component;
 
 /** Implements the application-layer dynamic credit pricing formula. */
+@Component
 public class BookingPriceCalculator {
     public PriceQuote calculate(
             Duration requestedDuration,

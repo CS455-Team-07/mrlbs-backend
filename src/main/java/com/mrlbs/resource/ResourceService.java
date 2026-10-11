@@ -23,7 +23,8 @@ public class ResourceService {
                 request.capacity(),
                 request.rules().stream().map(String::trim).toList(),
                 request.minimumDurationHours() == null ? new BigDecimal("1.00") : request.minimumDurationHours(),
-                request.maximumContentionMultiplier() == null ? new BigDecimal("3.00") : request.maximumContentionMultiplier());
+                request.maximumContentionMultiplier() == null ? new BigDecimal("3.00") : request.maximumContentionMultiplier(),
+                request.baseRate() == null ? BigDecimal.ONE : request.baseRate());
 
         return resourceRepository.save(resource);
     }

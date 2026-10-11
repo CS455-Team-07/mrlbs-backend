@@ -5,7 +5,7 @@ import java.util.UUID;
 import java.math.BigDecimal;
 
 public record ResourceResponse(UUID id, String name, String type, String location, Integer capacity,
-                               BigDecimal minimumDurationHours, BigDecimal maximumContentionMultiplier,
+                               BigDecimal baseRate, BigDecimal minimumDurationHours, BigDecimal maximumContentionMultiplier,
                                List<String> rules) {
 
     public static ResourceResponse from(LabResource resource) {
@@ -15,6 +15,7 @@ public record ResourceResponse(UUID id, String name, String type, String locatio
                 resource.getType(),
                 resource.getLocation(),
                 resource.getCapacity(),
+                resource.getBaseRate(),
                 resource.getMinimumDurationHours(),
                 resource.getMaximumContentionMultiplier(),
                 resource.getRules());
