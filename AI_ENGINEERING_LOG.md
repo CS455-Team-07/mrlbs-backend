@@ -185,3 +185,22 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 **Decision:** Modified.
 
 **Reason:** Slot correctness now relies on transaction-scoped database locking, followed by a persisted overlap query.
+# 2026-10-11 — BOOK-92 concurrent booking contention coverage
+
+**Task and context:** Complete Sprint 3 story BOOK-92 by proving concurrent requests for one slot cannot both confirm.
+
+**Prompt:** Finish Teja Satvik's assigned backlog tickets through Sprint 3, stacking each ticket and adding extensive unit tests.
+
+**AI output or response:** Added a Spring integration test that releases two independent member submissions simultaneously against one persisted resource.
+
+**Student/team evaluation:** Pending human review.
+
+**Errors, risks, or hallucinations identified:** The integration test exercises H2, while production uses PostgreSQL; PostgreSQL-specific contention behavior still depends on the production transaction and locking setup.
+
+**Changes made after evaluating the AI output:** The test asserts exactly one confirmed booking, a reason-coded `SLOT_NO_LONGER_AVAILABLE` loser, one credit debit, and no loser debit.
+
+**Final accepted artifact or output:** Proposed BOOK-92 concurrency regression coverage. Human acceptance is pending.
+
+**Decision:** Modified.
+
+**Reason:** Concurrency behavior now has repeatable persistence-level regression coverage in addition to the lock and overlap unit tests.
