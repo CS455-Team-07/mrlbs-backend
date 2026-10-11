@@ -1,28 +1,28 @@
-server:
-  port: 8081
-
 spring:
   application:
     name: mrlbs-backend
-
   profiles:
     default: dev
-
   datasource:
-    url: jdbc:h2:file:./data/mrlbs;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
-
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/mrlbs}
+    username: ${DB_USERNAME:mrlbs}
+    password: ${DB_PASSWORD:}
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: update
-    show-sql: true
-
-  h2:
-    console:
-      enabled: true
+      ddl-auto: none
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - openid
+              - profile
+              - email
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
 
 management:
   endpoints:
@@ -31,5 +31,8 @@ management:
         include: health,info
 
 mrlbs:
+  auth:
+    institutional-domain: ${INSTITUTIONAL_DOMAIN:iitk.ac.in}
+    frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:5173}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}

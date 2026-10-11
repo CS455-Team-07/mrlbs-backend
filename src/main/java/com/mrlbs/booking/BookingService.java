@@ -1,178 +1,67 @@
-
 package com.mrlbs.booking;
 
-import com.mrlbs.resource.BookingPolicy;
-import com.mrlbs.resource.BookingRule;
-import com.mrlbs.resource.Resource;
-import com.mrlbs.resource.ResourceRepository;
-
+import com.mrlbs.booking.credit.CreditAccount;
+import com.mrlbs.booking.credit.CreditAccountRepository;
+import com.mrlbs.booking.pricing.BookingPriceCalculator;
+import com.mrlbs.booking.pricing.PricingPolicy;
+import com.mrlbs.resource.LabResource;
+import com.mrlbs.resource.LabResourceRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.UUID;
 
 @Service
 public class BookingService {
-
     private final BookingRepository bookingRepository;
-    private final ResourceRepository resourceRepository;
+    private final LabResourceRepository resourceRepository;
+    private final CreditAccountRepository creditAccountRepository;
+    private final BookingPriceCalculator priceCalculator;
 
-    public BookingService(
-            BookingRepository bookingRepository,
-            ResourceRepository resourceRepository) {
+    public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
+                          CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator) {
         this.bookingRepository = bookingRepository;
         this.resourceRepository = resourceRepository;
+        this.creditAccountRepository = creditAccountRepository;
+        this.priceCalculator = priceCalculator;
     }
 
     @Transactional
-    public Booking createBooking(
-            Long resourceId,
-            LocalDateTime startTime,
-            LocalDateTime endTime) {
-
-        if (resourceId == null) {
-            throw new IllegalArgumentException(
-                    "Resource ID is required");
+    public Booking submit(String ownerEmail, BookingRequest request) {
+        if (ownerEmail == null || ownerEmail.isBlank()) {
+            throw new IllegalArgumentException("Authenticated member identity is required");
+        }
+        LocalDateTime start = request.startTime();
+        LocalDateTime end = request.endTime();
+        if (start == null || end == null || !end.isAfter(start) || !start.isAfter(LocalDateTime.now())) {
+            throw new BookingRejectedException(BookingRejectionReason.INVALID_TIME_WINDOW,
+                    "The requested booking time window is invalid.");
+        }
+        LabResource resource = resourceRepository.findById(request.resourceId()).orElseThrow(() ->
+                new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
+                        "The requested resource is not available."));
+        Duration duration = Duration.between(start, end);
+        var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, BigDecimal.ONE,
+                new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
+        CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
+        if (account == null || account.getBalance().compareTo(quote.totalCredits()) < 0) {
+            throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
+                    "The member does not have enough credits for this booking.");
         }
 
-        if (startTime == null || endTime == null
-                || !startTime.isBefore(endTime)) {
-            throw new IllegalArgumentException(
-                    "End time must be after start time");
-        }
-
-        // Lock the resource row so simultaneous booking requests
-        // for this resource are serialized.
-        Resource resource = resourceRepository
-                .findByIdForUpdate(resourceId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "Resource not found: " + resourceId));
-
-        if (!resource.isActive()) {
-            throw new IllegalArgumentException(
-                    "Cannot book an inactive resource");
-        }
-
-        // Capture the current rule version for this booking.
-        BookingRule rules = resource.getBookingRule();
-
-        if (rules == null) {
-            throw new IllegalStateException(
-                    "No booking rules are configured for this resource");
-        }
-
-        validateRules(rules);
-
-        long durationMinutes =
-                Duration.between(startTime, endTime).toMinutes();
-
-        if (durationMinutes < rules.getMinDurationMinutes()) {
-            throw new IllegalArgumentException(
-                    "Booking duration must be at least "
-                    + rules.getMinDurationMinutes() + " minutes");
-        }
-
-        if (durationMinutes > rules.getMaxDurationMinutes()) {
-            throw new IllegalArgumentException(
-                    "Booking duration cannot exceed "
-                    + rules.getMaxDurationMinutes() + " minutes");
-        }
-
-        // Compare against each existing booking using its own
-        // saved rule version and buffer time.
-        List<Booking> existingBookings =
-                bookingRepository.findByResourceId(resourceId);
-
-        for (Booking existing : existingBookings) {
-            if (existing.getStatus() != BookingStatus.PENDING
-                    && existing.getStatus() != BookingStatus.CONFIRMED) {
-                continue;
-            }
-
-            BookingRule existingRules = existing.getBookingRule();
-
-            int existingBuffer = existingRules == null
-                    ? 0
-                    : existingRules.getBufferTimeMinutes();
-
-            int requestedBuffer = rules.getBufferTimeMinutes();
-
-            LocalDateTime existingBlockedStart =
-                    existing.getStartTime().minusMinutes(existingBuffer);
-
-            LocalDateTime existingBlockedEnd =
-                    existing.getEndTime().plusMinutes(existingBuffer);
-
-            LocalDateTime requestedBlockedStart =
-                    startTime.minusMinutes(requestedBuffer);
-
-            LocalDateTime requestedBlockedEnd =
-                    endTime.plusMinutes(requestedBuffer);
-
-            boolean overlaps =
-                    requestedBlockedStart.isBefore(existingBlockedEnd)
-                    && requestedBlockedEnd.isAfter(existingBlockedStart);
-
-            if (overlaps) {
-                throw new IllegalArgumentException(
-                        "This resource is already booked or within "
-                        + "the required buffer time for that interval");
-            }
-        }
-
-        Booking booking = new Booking();
-        booking.setResource(resource);
-        booking.setBookingRule(rules);
-        booking.setStartTime(startTime);
-        booking.setEndTime(endTime);
-
-        // OPEN bookings are confirmed immediately.
-        // APPROVAL_REQUIRED bookings remain pending.
-        if (rules.getBookingPolicy() == BookingPolicy.OPEN) {
-            booking.setStatus(BookingStatus.CONFIRMED);
-        } else {
-            booking.setStatus(BookingStatus.PENDING);
-        }
-
-        return bookingRepository.save(booking);
+        Booking booking = new Booking(ownerEmail, resource, start, end, BookingStatus.CONFIRMED,
+                quote.totalCredits());
+        Booking saved = bookingRepository.save(booking);
+        account.debit(quote.totalCredits());
+        creditAccountRepository.save(account);
+        return saved;
     }
 
-    @Transactional
-    public Booking confirmBooking(Long bookingId) {
-        Booking booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "Booking not found: " + bookingId));
-
-        if (booking.getStatus() != BookingStatus.PENDING) {
-            throw new IllegalStateException(
-                    "Only pending bookings can be confirmed");
-        }
-
-        // Preserve the original booking-rule reference.
-        booking.setStatus(BookingStatus.CONFIRMED);
-
-        return bookingRepository.save(booking);
-    }
-
-    public List<Booking> getBookingsForResource(Long resourceId) {
-        return bookingRepository.findByResourceId(resourceId);
-    }
-
-    private void validateRules(BookingRule rules) {
-        if (rules.getBookingPolicy() == null
-                || rules.getMinDurationMinutes() == null
-                || rules.getMaxDurationMinutes() == null
-                || rules.getBufferTimeMinutes() == null
-                || rules.getMinDurationMinutes() <= 0
-                || rules.getMaxDurationMinutes()
-                        < rules.getMinDurationMinutes()
-                || rules.getBufferTimeMinutes() < 0) {
-            throw new IllegalStateException(
-                    "The resource has invalid booking rules");
-        }
+    @Transactional(readOnly = true)
+    public java.util.List<Booking> history(String ownerEmail) {
+        return bookingRepository.findByOwnerEmailOrderByStartTimeDesc(ownerEmail);
     }
 }

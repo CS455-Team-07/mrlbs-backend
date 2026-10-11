@@ -1,9 +1,10 @@
-
 package com.mrlbs.booking;
 
 public enum BookingStatus {
-    PENDING,
     CONFIRMED,
+    PENDING_APPROVAL,
+    REJECTED,
     CANCELLED,
-    REJECTED
+    COMPLETED,
+    IN_PROGRESS
 }

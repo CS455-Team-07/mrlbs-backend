@@ -1,15 +1,12 @@
 
 package com.mrlbs.resource;
 
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.List;
 
-@RestController
+@RestController("managedResourceController")
 @RequestMapping("/api/resources")
 public class ResourceController {
 
@@ -41,39 +38,6 @@ public class ResourceController {
         resourceService.restoreResource(resourceId);
 
         return ResponseEntity.noContent().build();
-    }
-
-    // Search resources by type, availability, and capacity
-    @GetMapping("/search")
-    public ResponseEntity<List<Resource>> searchResources(
-
-            @RequestParam(required = false)
-            String type,
-
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-            LocalDate date,
-
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.TIME)
-            LocalTime startTime,
-
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.TIME)
-            LocalTime endTime,
-
-            @RequestParam(required = false)
-            Integer capacity) {
-
-        return ResponseEntity.ok(
-                resourceService.searchResources(
-                        type,
-                        date,
-                        startTime,
-                        endTime,
-                        capacity
-                )
-        );
     }
 
     // Get one active resource

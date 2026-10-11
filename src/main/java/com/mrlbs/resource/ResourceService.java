@@ -1,34 +1,24 @@
 
 package com.mrlbs.resource;
 
-import com.mrlbs.booking.BookingRepository;
-import com.mrlbs.booking.BookingStatus;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 
 @Service
 public class ResourceService {
 
     private final ResourceRepository resourceRepository;
     private final BookingRuleRepository bookingRuleRepository;
-    private final BookingRepository bookingRepository;
 
     public ResourceService(
             ResourceRepository resourceRepository,
-            BookingRuleRepository bookingRuleRepository,
-            BookingRepository bookingRepository) {
+            BookingRuleRepository bookingRuleRepository) {
 
         this.resourceRepository = resourceRepository;
         this.bookingRuleRepository = bookingRuleRepository;
-        this.bookingRepository = bookingRepository;
     }
 
     // Get all active resources
@@ -152,104 +142,6 @@ public class ResourceService {
 
         bookingRuleRepository.save(version);
         resource.setBookingRule(version);
-    }
-
-    // Search active resources by type, date/time availability, and capacity
-    public List<Resource> searchResources(
-            String type,
-            LocalDate date,
-            LocalTime startTime,
-            LocalTime endTime,
-            Integer capacity) {
-
-        if (capacity != null && capacity < 0) {
-            throw new IllegalArgumentException(
-                    "Capacity cannot be negative");
-        }
-
-        // A date-based availability search requires both times.
-        if (date != null
-                && (startTime == null || endTime == null)) {
-            throw new IllegalArgumentException(
-                    "Start time and end time are required "
-                    + "when searching by date");
-        }
-
-        // Reject invalid time intervals.
-        if (startTime != null
-                && endTime != null
-                && !startTime.isBefore(endTime)) {
-            throw new IllegalArgumentException(
-                    "End time must be after start time");
-        }
-
-        // Do not accept times without a date.
-        if (date == null
-                && (startTime != null || endTime != null)) {
-            throw new IllegalArgumentException(
-                    "A date is required when specifying "
-                    + "a time interval");
-        }
-
-        String normalizedType =
-                type == null || type.isBlank()
-                        ? null
-                        : type.trim().toLowerCase(Locale.ROOT);
-
-        LocalDateTime requestedStart = null;
-        LocalDateTime requestedEnd = null;
-
-        if (date != null) {
-            requestedStart =
-                    LocalDateTime.of(date, startTime);
-
-            requestedEnd =
-                    LocalDateTime.of(date, endTime);
-        }
-
-        final LocalDateTime searchStart = requestedStart;
-        final LocalDateTime searchEnd = requestedEnd;
-
-        return resourceRepository.findByActiveTrue()
-                .stream()
-
-                // Filter by resource type
-                .filter(resource ->
-                        normalizedType == null
-                        || (resource.getType() != null
-                        && resource.getType()
-                                .toLowerCase(Locale.ROOT)
-                                .contains(normalizedType)))
-
-                // Filter by minimum capacity
-                .filter(resource ->
-                        capacity == null
-                        || (resource.getCapacity() != null
-                        && resource.getCapacity() >= capacity))
-
-                // Exclude resources with overlapping bookings
-                .filter(resource -> {
-                    if (date == null) {
-                        // No date means no availability filtering.
-                        return true;
-                    }
-
-                    boolean hasConflict =
-                            bookingRepository
-                                    .existsOverlappingBooking(
-                                            resource.getId(),
-                                            searchStart,
-                                            searchEnd,
-                                            Set.of(
-                                                    BookingStatus.PENDING,
-                                                    BookingStatus.CONFIRMED
-                                            )
-                                    );
-
-                    return !hasConflict;
-                })
-
-                .toList();
     }
 
     // Validate booking rules
