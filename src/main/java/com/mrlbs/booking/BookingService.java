@@ -5,7 +5,7 @@ import com.mrlbs.booking.credit.CreditAccountRepository;
 import com.mrlbs.booking.pricing.BookingPriceCalculator;
 import com.mrlbs.booking.pricing.PricingPolicy;
 import com.mrlbs.resource.LabResource;
-import com.mrlbs.resource.ResourceRepository;
+import com.mrlbs.resource.LabResourceRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,11 +17,11 @@ import java.util.UUID;
 @Service
 public class BookingService {
     private final BookingRepository bookingRepository;
-    private final ResourceRepository resourceRepository;
+    private final LabResourceRepository resourceRepository;
     private final CreditAccountRepository creditAccountRepository;
     private final BookingPriceCalculator priceCalculator;
 
-    public BookingService(BookingRepository bookingRepository, ResourceRepository resourceRepository,
+    public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
                           CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator) {
         this.bookingRepository = bookingRepository;
         this.resourceRepository = resourceRepository;

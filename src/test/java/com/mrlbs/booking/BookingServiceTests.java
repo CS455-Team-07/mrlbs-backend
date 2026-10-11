@@ -4,7 +4,7 @@ import com.mrlbs.booking.credit.CreditAccount;
 import com.mrlbs.booking.credit.CreditAccountRepository;
 import com.mrlbs.booking.pricing.BookingPriceCalculator;
 import com.mrlbs.resource.LabResource;
-import com.mrlbs.resource.ResourceRepository;
+import com.mrlbs.resource.LabResourceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,7 +29,7 @@ import static org.mockito.Mockito.lenient;
 @ExtendWith(MockitoExtension.class)
 class BookingServiceTests {
     @Mock BookingRepository bookingRepository;
-    @Mock ResourceRepository resourceRepository;
+    @Mock LabResourceRepository resourceRepository;
     @Mock CreditAccountRepository creditAccountRepository;
     private BookingService service;
     private LabResource resource;

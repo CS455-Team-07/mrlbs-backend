@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "resources")
+@Table(name = "lab_resources")
 public class LabResource {
 
     @Id
@@ -45,7 +45,7 @@ public class LabResource {
     private BigDecimal maximumContentionMultiplier = new BigDecimal("3.00");
 
     @ElementCollection
-    @CollectionTable(name = "resource_rules", joinColumns = @JoinColumn(name = "resource_id"))
+    @CollectionTable(name = "lab_resource_rules", joinColumns = @JoinColumn(name = "resource_id"))
     @Column(name = "rule_text", nullable = false, length = 1000)
     @OrderColumn(name = "rule_order")
     private List<String> rules = new ArrayList<>();

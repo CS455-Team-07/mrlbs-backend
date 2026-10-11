@@ -1,6 +1,6 @@
 package com.mrlbs.controller;
 
-import com.mrlbs.resource.ResourceRepository;
+import com.mrlbs.resource.LabResourceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +28,7 @@ class ResourceControllerTests {
     private MockMvc mockMvc;
 
     @Autowired
-    private ResourceRepository resourceRepository;
+    private LabResourceRepository resourceRepository;
 
     @BeforeEach
     void clearResources() {

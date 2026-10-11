@@ -2,7 +2,7 @@ package com.mrlbs.controller;
 
 import com.mrlbs.resource.ResourceRequest;
 import com.mrlbs.resource.ResourceResponse;
-import com.mrlbs.resource.ResourceService;
+import com.mrlbs.resource.LabResourceService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -16,9 +16,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/resources")
 public class ResourceController {
 
-    private final ResourceService resourceService;
+    private final LabResourceService resourceService;
 
-    public ResourceController(ResourceService resourceService) {
+    public ResourceController(LabResourceService resourceService) {
         this.resourceService = resourceService;
     }
 

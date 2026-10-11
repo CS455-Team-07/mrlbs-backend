@@ -16,10 +16,10 @@ import java.util.UUID;
 
 @Service
 public class ResourceSearchService {
-    private final ResourceRepository resourceRepository;
+    private final LabResourceRepository resourceRepository;
     private final BookingRepository bookingRepository;
 
-    public ResourceSearchService(ResourceRepository resourceRepository, BookingRepository bookingRepository) {
+    public ResourceSearchService(LabResourceRepository resourceRepository, BookingRepository bookingRepository) {
         this.resourceRepository = resourceRepository;
         this.bookingRepository = bookingRepository;
     }

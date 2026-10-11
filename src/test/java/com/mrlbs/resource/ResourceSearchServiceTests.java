@@ -26,7 +26,7 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ResourceSearchServiceTests {
-    @Mock ResourceRepository resourceRepository;
+    @Mock LabResourceRepository resourceRepository;
     @Mock BookingRepository bookingRepository;
     private ResourceSearchService service;
 
