@@ -204,3 +204,41 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 **Decision:** Modified.
 
 **Reason:** Concurrency behavior now has repeatable persistence-level regression coverage in addition to the lock and overlap unit tests.
+# 2026-10-11 — BOOK-86 atomic booking time modification
+
+**Task and context:** Implement FR-6.1 so a member can change a future booking only after the requested replacement window is validated and locked.
+
+**Prompt:** Complete Teja Satvik's assigned backlog through Sprint 3 in stacked pull requests with extensive tests.
+
+**AI output or response:** Added an owner-scoped booking row lock, resource row lock, overlap check excluding the current booking, replacement pricing, and a transactional time-window update.
+
+**Student/team evaluation:** Pending human review.
+
+**Errors, risks, or hallucinations identified:** Current booking state uses the existing CONFIRMED status; pending approval bookings are not modifiable in this workflow.
+
+**Changes made after evaluating the AI output:** Added service tests for successful repricing, conflict preservation, post-start rejection, and insufficient-credit preservation.
+
+**Final accepted artifact or output:** Proposed BOOK-86 member booking modification endpoint and tests. Human acceptance is pending.
+
+**Decision:** Modified.
+
+**Reason:** The transaction retains the original booking until all replacement-slot and credit checks pass.
+# 2026-10-11 — BOOK-88 prevent post-start booking changes
+
+**Task and context:** Implement FR-6.3 by rejecting modification and cancellation after a booking starts or enters a completed/in-progress state.
+
+**Prompt:** Complete Teja Satvik's assigned tickets through Sprint 3 with stacked PRs and extensive tests.
+
+**AI output or response:** Added a locked owner booking cancellation operation that checks start time and status, serializes slot release through the resource lock, and refunds credits only for a confirmed booking.
+
+**Student/team evaluation:** Pending human review.
+
+**Errors, risks, or hallucinations identified:** The current application has no separate occupant check-in workflow; the status guard handles IN_PROGRESS and COMPLETED, and the scheduled start time remains the authoritative boundary.
+
+**Changes made after evaluating the AI output:** Added service coverage for post-start denial, COMPLETED/IN_PROGRESS denial for both modification and cancellation, confirmed-booking refund, and pending cancellation without refund.
+
+**Final accepted artifact or output:** Proposed BOOK-88 post-start protection and cancellation endpoint. Human acceptance is pending.
+
+**Decision:** Modified.
+
+**Reason:** Modification and cancellation now preserve terminal/in-progress states and do not release a slot after its start time.
