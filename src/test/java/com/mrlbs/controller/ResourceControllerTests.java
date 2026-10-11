@@ -94,6 +94,27 @@ class ResourceControllerTests {
     }
 
     @Test
+    void adminCanSetApprovalRequiredForNewResource() throws Exception {
+        mockMvc.perform(post("/api/resources")
+                        .with(user("admin").roles("ADMIN"))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Clean Room",
+                                  "type": "Lab",
+                                  "location": "Research Block",
+                                  "rules": ["Protective clothing required"],
+                                  "approvalRequired": true
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.approvalRequired").value(true));
+        org.assertj.core.api.Assertions.assertThat(resourceRepository.findAll().getFirst().isApprovalRequired())
+                .isTrue();
+    }
+
+    @Test
     void memberCannotCreateResource() throws Exception {
         mockMvc.perform(post("/api/resources")
                         .with(user("member").roles("MEMBER"))

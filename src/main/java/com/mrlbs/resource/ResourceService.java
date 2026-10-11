@@ -24,7 +24,8 @@ public class ResourceService {
                 request.rules().stream().map(String::trim).toList(),
                 request.minimumDurationHours() == null ? new BigDecimal("1.00") : request.minimumDurationHours(),
                 request.maximumContentionMultiplier() == null ? new BigDecimal("3.00") : request.maximumContentionMultiplier(),
-                request.baseRate() == null ? BigDecimal.ONE : request.baseRate());
+                request.baseRate() == null ? BigDecimal.ONE : request.baseRate(),
+                Boolean.TRUE.equals(request.approvalRequired()));
 
         return resourceRepository.save(resource);
     }

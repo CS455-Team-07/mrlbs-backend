@@ -40,28 +40,112 @@ public class BookingService {
             throw new BookingRejectedException(BookingRejectionReason.INVALID_TIME_WINDOW,
                     "The requested booking time window is invalid.");
         }
-        LabResource resource = resourceRepository.findById(request.resourceId()).orElseThrow(() ->
+        LabResource resource = resourceRepository.findByIdForUpdate(request.resourceId()).orElseThrow(() ->
                 new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
                         "The requested resource is not available."));
         Duration duration = Duration.between(start, end);
         var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, BigDecimal.ONE,
                 new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
+        BookingStatus status = resource.isApprovalRequired()
+                ? BookingStatus.PENDING_APPROVAL : BookingStatus.CONFIRMED;
+        if (status == BookingStatus.CONFIRMED && bookingRepository
+                .findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
+                        resource.getId(), BookingStatus.CONFIRMED, end, start).isPresent()) {
+            throw new BookingRejectedException(BookingRejectionReason.SLOT_NO_LONGER_AVAILABLE,
+                    "This slot is no longer available.");
+        }
         CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
         if (account == null || account.getBalance().compareTo(quote.totalCredits()) < 0) {
             throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
                     "The member does not have enough credits for this booking.");
         }
-
-        Booking booking = new Booking(ownerEmail, resource, start, end, BookingStatus.CONFIRMED,
+        Booking booking = new Booking(ownerEmail, resource, start, end, status,
                 quote.totalCredits());
         Booking saved = bookingRepository.save(booking);
-        account.debit(quote.totalCredits());
-        creditAccountRepository.save(account);
+        if (status == BookingStatus.CONFIRMED) {
+            account.debit(quote.totalCredits());
+            creditAccountRepository.save(account);
+        }
         return saved;
     }
 
     @Transactional(readOnly = true)
     public java.util.List<Booking> history(String ownerEmail) {
         return bookingRepository.findByOwnerEmailOrderByStartTimeDesc(ownerEmail);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.List<Booking> pendingApprovals() {
+        return bookingRepository.findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL);
+    }
+
+    @Transactional
+    public Booking modifyTimeWindow(String ownerEmail, UUID bookingId, BookingTimeWindowRequest request) {
+        Booking booking = bookingRepository.findOwnedBookingForUpdate(bookingId, ownerEmail).orElseThrow(() ->
+                new BookingRejectedException(BookingRejectionReason.BOOKING_NOT_FOUND,
+                        "The requested booking was not found."));
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime start = request.startTime();
+        LocalDateTime end = request.endTime();
+        if (booking.getStatus() != BookingStatus.CONFIRMED || !booking.getStartTime().isAfter(now)
+                || start == null || end == null || !start.isAfter(now) || !end.isAfter(start)) {
+            throw new BookingRejectedException(BookingRejectionReason.BOOKING_NOT_MODIFIABLE,
+                    "This booking can no longer be modified.");
+        }
+
+        LabResource resource = resourceRepository.findByIdForUpdate(booking.getResource().getId()).orElseThrow(() ->
+                new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
+                        "The requested resource is not available."));
+        var quote = priceCalculator.calculate(Duration.between(start, end), resource.getBaseRate(),
+                BigDecimal.ONE, BigDecimal.ONE,
+                new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
+        if (bookingRepository.findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
+                resource.getId(), BookingStatus.CONFIRMED, end, start, bookingId).isPresent()) {
+            throw new BookingRejectedException(BookingRejectionReason.SLOT_NO_LONGER_AVAILABLE,
+                    "This slot is no longer available.");
+        }
+
+        CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElseThrow(() ->
+                new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
+                        "The member does not have enough credits for this booking."));
+        BigDecimal difference = quote.totalCredits().subtract(booking.getCreditCost());
+        if (difference.signum() > 0 && account.getBalance().compareTo(difference) < 0) {
+            throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
+                    "The member does not have enough credits for this booking.");
+        }
+        if (difference.signum() > 0) account.debit(difference);
+        else if (difference.signum() < 0) account.credit(difference.negate());
+
+        booking.setStartTime(start);
+        booking.setEndTime(end);
+        booking.setCreditCost(quote.totalCredits());
+        creditAccountRepository.save(account);
+        return bookingRepository.save(booking);
+    }
+
+    @Transactional
+    public Booking cancel(String ownerEmail, UUID bookingId) {
+        Booking booking = bookingRepository.findOwnedBookingForUpdate(bookingId, ownerEmail).orElseThrow(() ->
+                new BookingRejectedException(BookingRejectionReason.BOOKING_NOT_FOUND,
+                        "The requested booking was not found."));
+        boolean cancellableStatus = booking.getStatus() == BookingStatus.CONFIRMED
+                || booking.getStatus() == BookingStatus.PENDING_APPROVAL;
+        if (!cancellableStatus || !booking.getStartTime().isAfter(LocalDateTime.now())) {
+            throw new BookingRejectedException(BookingRejectionReason.BOOKING_NOT_MODIFIABLE,
+                    "This booking can no longer be cancelled.");
+        }
+
+        resourceRepository.findByIdForUpdate(booking.getResource().getId()).orElseThrow(() ->
+                new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
+                        "The requested resource is not available."));
+        if (booking.getStatus() == BookingStatus.CONFIRMED) {
+            CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElseThrow(() ->
+                    new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
+                            "The member credit account is not available."));
+            account.credit(booking.getCreditCost());
+            creditAccountRepository.save(account);
+        }
+        booking.setStatus(BookingStatus.CANCELLED);
+        return bookingRepository.save(booking);
     }
 }

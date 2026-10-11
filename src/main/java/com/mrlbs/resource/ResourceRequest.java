@@ -17,5 +17,6 @@ public record ResourceRequest(
         @DecimalMin(value = "0.00") BigDecimal baseRate,
         @DecimalMin(value = "0.01") BigDecimal minimumDurationHours,
         @DecimalMin(value = "0.00") BigDecimal maximumContentionMultiplier,
+        Boolean approvalRequired,
         @NotEmpty List<@NotBlank @Size(max = 1000) String> rules) {
 }
