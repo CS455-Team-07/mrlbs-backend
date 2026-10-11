@@ -1,0 +1,18 @@
+$kind: http-request
+url: http://localhost:8080/api/bookings/draft
+method: POST
+headers:
+  - key: Content-Type
+    value: application/json
+  - key: X-Member-Id
+    value: '1001'
+body:
+  type: json
+  content: |-
+    {
+      "resourceId": 1,
+      "startTime": "2026-11-01T09:00:00",
+      "endTime": "2026-11-01T11:00:00"
+    }
+examples: ./.resources/Create Draft Booking (no waitlist contention).resources/examples
+order: 3000

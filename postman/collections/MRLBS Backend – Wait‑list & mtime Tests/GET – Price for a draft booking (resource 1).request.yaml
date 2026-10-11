@@ -1,0 +1,13 @@
+$kind: http-request
+url: http://localhost:8080/api/bookings/{{draftId1}}/price
+method: GET
+headers:
+  X-Member-Id: "101"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Status 200', () => pm.response.to.have.status(200));
+      const json = pm.response.json();
+      pm.test('Returned creditCost matches earlier calculation', () => pm.expect(json.creditCost).to.eql(20));
+    language: text/javascript
+order: 6000

@@ -1,0 +1,24 @@
+$kind: http-request
+url: http://localhost:8080/api/bookings/draft
+method: POST
+headers:
+  Content-Type: application/json
+  X-Member-Id: "102"
+body:
+  type: text
+  content: |-
+    {
+      "resourceId": 2,
+      "startTime": "2026-11-01T09:00:00",
+      "endTime": "2026-11-01T11:00:00"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Status 200', () => pm.response.to.have.status(200));
+      const json = pm.response.json();
+      // Seed data: resource 2 baseRate = 5, wait‑list size = 3 → contention = 1.0 + (3/5×0.2) ≈ 1.2
+      // Calculation: 2 h × 5 × 1 (mtime) × 1.2 = 12 → ceil = 12
+      pm.test('Credit cost = 12', () => pm.expect(json.creditCost).to.eql(12));
+    language: text/javascript
+order: 5000

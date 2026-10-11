@@ -1,0 +1,14 @@
+$kind: http-request
+url: http://localhost:8080/api/waitlist?resourceId=2
+method: GET
+queryParams:
+  resourceId: "2"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Status 200', () => pm.response.to.have.status(200));
+      const json = pm.response.json();
+      // The seed data adds 3 entries for resource‑2
+      pm.test('Resource 2 has 3 wait‑list entries', () => pm.expect(json.length).to.eql(3));
+    language: text/javascript
+order: 3000

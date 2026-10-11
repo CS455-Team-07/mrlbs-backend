@@ -1,0 +1,6 @@
+$kind: collection
+description: ""
+variables:
+  resource1Id: ""
+  resource2Id: ""
+  resource3Id: ""

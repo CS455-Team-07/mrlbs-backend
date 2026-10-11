@@ -1,0 +1,30 @@
+$kind: http-request
+url: http://localhost:8080/api/bookings/draft
+method: POST
+headers:
+  Content-Type: application/json
+  X-Member-Id: "9999"
+body:
+  type: text
+  content: |-
+    {
+      "resourceId": {{resource2Id}},
+      "startTime": "2026-11-01T10:00:00",
+      "endTime": "2026-11-01T12:00:00"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Status 200', () => pm.response.to.have.status(200));
+      const booking = pm.response.json();
+      pm.test('Booking contains memberId 9999', () => pm.expect(booking.memberId).to.eql(9999));
+      pm.test('Credit calculation uses contention 1.2', () => {
+        const expectedMultiplier = 1.2;
+        const durationHours = 2; // 10:00‑12:00
+        const baseRate = booking.resource.baseRate; // pulled from resource
+        const mtime = booking.resource.mtimeMultiplier ? parseFloat(booking.resource.mtimeMultiplier) : 1.0;
+        const expectedCredits = Math.ceil(durationHours * baseRate * mtime * expectedMultiplier);
+        pm.expect(booking.credits).to.eql(expectedCredits);
+      });
+    language: text/javascript
+order: 5000

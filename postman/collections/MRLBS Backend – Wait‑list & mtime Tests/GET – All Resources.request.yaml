@@ -1,0 +1,17 @@
+$kind: http-request
+url: http://localhost:8080/api/resources
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Status 200', () => pm.response.to.have.status(200));
+      pm.test('Body is an array', () => {
+        const json = pm.response.json();
+        pm.expect(json).to.be.an('array');
+      });
+      pm.test('Each resource has mtimeMultiplier field', () => {
+        const json = pm.response.json();
+        json.forEach(r => pm.expect(r).to.have.property('mtimeMultiplier'));
+      });
+    language: text/javascript
+order: 1000

@@ -1,0 +1,2 @@
+$kind: collection
+description: Tests the dynamic pricing logic using the seeded data (mtimeMultiplier & wait‑list contention).

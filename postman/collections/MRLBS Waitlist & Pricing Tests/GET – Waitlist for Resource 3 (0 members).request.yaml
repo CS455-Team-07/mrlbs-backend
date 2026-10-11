@@ -1,0 +1,14 @@
+$kind: http-request
+url: http://localhost:8080/api/waitlist?resourceId={{resource3Id}}
+method: GET
+queryParams:
+  resourceId: "{{resource3Id}}"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Status 200', () => pm.response.to.have.status(200));
+      const list = pm.response.json();
+      pm.test('Resource 3 has 0 waitlist entries', () => pm.expect(list.length).to.eql(0));
+      pm.test('Contention multiplier = 1.0', () => pm.expect(1.0).to.eql(1.0));
+    language: text/javascript
+order: 4000

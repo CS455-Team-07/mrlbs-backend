@@ -1,0 +1,17 @@
+# Use this workspace to collaborate
+workspace:
+  id: 5b60fc20-9225-4a6f-8455-e0c6485565d9
+
+# Each entry here maps a local resource to one or more corresponding objects in Postman Cloud
+
+cloudResources:
+  collections:
+    ../postman/collections/MRLBS Backend Test Collection: 157f2be3-72fd-43bc-ae50-3e6ea48896d9
+    ../postman/collections/MRLBS Backend – Wait‑list & mtime Tests: 80e6ce30-5292-4488-9560-fa8b0434d9a3
+    ../postman/collections/MRLBS Waitlist & Pricing Tests: af22e655-fc4f-4574-9be5-4e6485089463
+
+# All resources in the `postman/` folder are automatically registered in Local View.
+# Point to additional files outside the `postman/` folder to register them individually. Example:
+#localResources:
+#  collections:
+#    - ../tests/E2E Test Collection/

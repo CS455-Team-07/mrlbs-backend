@@ -1,0 +1,2 @@
+$kind: collection
+description: Collection to verify the new mtimeMultiplier and waitlist contention logic.
