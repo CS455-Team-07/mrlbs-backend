@@ -52,16 +52,25 @@ public class BookingService {
                     "The member does not have enough credits for this booking.");
         }
 
-        Booking booking = new Booking(ownerEmail, resource, start, end, BookingStatus.CONFIRMED,
+        BookingStatus status = resource.isApprovalRequired()
+                ? BookingStatus.PENDING_APPROVAL : BookingStatus.CONFIRMED;
+        Booking booking = new Booking(ownerEmail, resource, start, end, status,
                 quote.totalCredits());
         Booking saved = bookingRepository.save(booking);
-        account.debit(quote.totalCredits());
-        creditAccountRepository.save(account);
+        if (status == BookingStatus.CONFIRMED) {
+            account.debit(quote.totalCredits());
+            creditAccountRepository.save(account);
+        }
         return saved;
     }
 
     @Transactional(readOnly = true)
     public java.util.List<Booking> history(String ownerEmail) {
         return bookingRepository.findByOwnerEmailOrderByStartTimeDesc(ownerEmail);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.List<Booking> pendingApprovals() {
+        return bookingRepository.findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL);
     }
 }

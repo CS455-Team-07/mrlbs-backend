@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -32,5 +33,11 @@ public class BookingController {
     @GetMapping
     public List<BookingResponse> history(@AuthenticationPrincipal OidcUser user) {
         return bookingService.history(user.getEmail()).stream().map(BookingResponse::from).toList();
+    }
+
+    @GetMapping("/pending-approval")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<BookingResponse> pendingApprovals() {
+        return bookingService.pendingApprovals().stream().map(BookingResponse::from).toList();
     }
 }

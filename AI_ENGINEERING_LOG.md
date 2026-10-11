@@ -147,3 +147,22 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 **Decision:** Modified.
 
 **Reason:** Search and availability now use persisted booking rows and expose only the data required to choose a slot.
+# 2026-10-11 — BOOK-84 pending approval workflow entry
+
+**Task and context:** Implement FR-5.3 so resources may require review and new requests persist as PENDING_APPROVAL for Admin review.
+
+**Prompt:** Complete only Teja Satvik's backlog through Sprint 3 in stacked PRs with extensive tests; BOOK-84 requires approval-required submissions to enter a persisted pending state and be routed for review.
+
+**AI output or response:** Added an approval-required resource setting, stored it in a migration, added an Admin pending-approval queue endpoint, and made booking submission persist PENDING_APPROVAL without charging credits.
+
+**Student/team evaluation:** Pending human review. The human Admin remains the decision maker. This story routes requests; the assigned follow-up in Sprint 4 is outside the current scope.
+
+**Errors, risks, or hallucinations identified:** Current OIDC role provisioning is a different teammate's story, so the queue uses the existing `ROLE_ADMIN` method-security contract and depends on role authorities being provisioned by that work.
+
+**Changes made after evaluating the AI output:** Added service/persistence assertions for pending status and unchanged balance; added Admin onboarding and form tests for setting the policy.
+
+**Final accepted artifact or output:** Proposed BOOK-84 approval policy, pending queue, and tests. Human acceptance is pending.
+
+**Decision:** Modified.
+
+**Reason:** Approval-required requests are durably visible to Admin review and are not prematurely confirmed or charged.

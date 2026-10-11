@@ -85,7 +85,7 @@ class ResourceSearchServiceTests {
 
     private static LabResource resource(UUID id, String name, String type, int capacity) {
         return new LabResource(name, type, "Building A", capacity, List.of("Safety rules"),
-                BigDecimal.ONE, new BigDecimal("3"), BigDecimal.ONE) {
+                BigDecimal.ONE, new BigDecimal("3"), BigDecimal.ONE, false) {
             @Override public UUID getId() { return id; }
         };
     }

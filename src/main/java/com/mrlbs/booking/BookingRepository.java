@@ -15,4 +15,6 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 
     Optional<Booking> findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
             UUID resourceId, BookingStatus status, LocalDateTime before, LocalDateTime after);
+
+    List<Booking> findByStatusOrderByStartTimeAsc(BookingStatus status);
 }

@@ -118,4 +118,30 @@ class BookingServiceTests {
         assertEquals(BookingRejectionReason.INSUFFICIENT_CREDITS, rejected.getReason());
         verify(bookingRepository, never()).save(any());
     }
+
+    @Test
+    void approvalRequiredResourceCreatesPendingBookingWithoutDebitingCredits() {
+        when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
+        when(resource.isApprovalRequired()).thenReturn(true);
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("10"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        var start = LocalDateTime.now().plusDays(1);
+
+        Booking result = service.submit("member@iitk.ac.in",
+                new BookingRequest(resourceId, start, start.plusHours(1)));
+
+        assertEquals(BookingStatus.PENDING_APPROVAL, result.getStatus());
+        assertEquals(new BigDecimal("10"), account.getBalance());
+        verify(creditAccountRepository, never()).save(any());
+    }
+
+    @Test
+    void pendingApprovalQueueReadsOnlyPendingBookingsInStartOrder() {
+        when(bookingRepository.findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL))
+                .thenReturn(java.util.List.of());
+
+        assertEquals(java.util.List.of(), service.pendingApprovals());
+        verify(bookingRepository).findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL);
+    }
 }

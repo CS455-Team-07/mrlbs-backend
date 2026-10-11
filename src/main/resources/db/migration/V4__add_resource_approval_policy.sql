@@ -1,0 +1,2 @@
+ALTER TABLE resources
+    ADD COLUMN approval_required BOOLEAN NOT NULL DEFAULT FALSE;
