@@ -128,3 +128,22 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 **Decision:** Modified.
 
 **Reason:** The API returns explicit rejection reasons and the service avoids writes before the balance check; the account lock and transaction ensure balance/booking updates commit together.
+# 2026-10-11 — BOOK-81 resource search and availability
+
+**Task and context:** Implement FR-4.1/FR-4.2 resource search filters and a per-resource booked/open availability view.
+
+**Prompt:** Complete assigned Jira issues as individually stacked PRs with extensive unit tests. BOOK-81 lets Members search resources and see existing bookings and open slots for a date.
+
+**AI output or response:** Added case-insensitive resource-type and minimum-capacity filtering, date availability flags, a date availability endpoint, and gap calculation from confirmed bookings.
+
+**Student/team evaluation:** Pending human review. Open slots span midnight to midnight because resource operating hours are not represented in the existing domain model.
+
+**Errors, risks, or hallucinations identified:** Capacity filtering treats an unset capacity as unbounded. Pending approval requests are not shown as booked because they do not yet reserve a slot.
+
+**Changes made after evaluating the AI output:** Availability responses contain time intervals only and omit member identity to avoid exposing booking owners.
+
+**Final accepted artifact or output:** Proposed BOOK-81 resource search/availability service, endpoints, and tests. Human acceptance is pending.
+
+**Decision:** Modified.
+
+**Reason:** Search and availability now use persisted booking rows and expose only the data required to choose a slot.
