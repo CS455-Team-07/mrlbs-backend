@@ -166,3 +166,22 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 **Decision:** Modified.
 
 **Reason:** Approval-required requests are durably visible to Admin review and are not prematurely confirmed or charged.
+# 2026-10-11 — BOOK-91 database-level booking conflict protection
+
+**Task and context:** Implement FR-8.1 with a database row lock that serializes slot acquisition and prevents overlapping confirmed bookings.
+
+**Prompt:** Complete Teja Satvik's Sprint 3 assigned stories in stacked branches with extensive tests. BOOK-91 requires PostgreSQL pessimistic locking rather than application-only availability checks.
+
+**AI output or response:** Added a pessimistic write lock query for the resource row and an overlap check for confirmed bookings in the booking transaction. Conflicts return `SLOT_NO_LONGER_AVAILABLE`.
+
+**Student/team evaluation:** Pending human review. The resource row is locked so all contenders for one resource serialize across application instances.
+
+**Errors, risks, or hallucinations identified:** H2 can verify repository/service behavior but does not demonstrate PostgreSQL's production locking behavior under load; BOOK-92 adds concurrent contention coverage, while production DB validation remains deployment dependent.
+
+**Changes made after evaluating the AI output:** Added service tests that verify the locked resource lookup and prove overlap rejection occurs before booking or credit writes.
+
+**Final accepted artifact or output:** Proposed BOOK-91 pessimistic locking and conflict handling. Human acceptance is pending.
+
+**Decision:** Modified.
+
+**Reason:** Slot correctness now relies on transaction-scoped database locking, followed by a persisted overlap query.

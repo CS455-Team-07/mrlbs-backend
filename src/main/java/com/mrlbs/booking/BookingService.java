@@ -40,20 +40,25 @@ public class BookingService {
             throw new BookingRejectedException(BookingRejectionReason.INVALID_TIME_WINDOW,
                     "The requested booking time window is invalid.");
         }
-        LabResource resource = resourceRepository.findById(request.resourceId()).orElseThrow(() ->
+        LabResource resource = resourceRepository.findByIdForUpdate(request.resourceId()).orElseThrow(() ->
                 new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
                         "The requested resource is not available."));
         Duration duration = Duration.between(start, end);
         var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, BigDecimal.ONE,
                 new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
+        BookingStatus status = resource.isApprovalRequired()
+                ? BookingStatus.PENDING_APPROVAL : BookingStatus.CONFIRMED;
+        if (status == BookingStatus.CONFIRMED && bookingRepository
+                .findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
+                        resource.getId(), BookingStatus.CONFIRMED, end, start).isPresent()) {
+            throw new BookingRejectedException(BookingRejectionReason.SLOT_NO_LONGER_AVAILABLE,
+                    "This slot is no longer available.");
+        }
         CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
         if (account == null || account.getBalance().compareTo(quote.totalCredits()) < 0) {
             throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
                     "The member does not have enough credits for this booking.");
         }
-
-        BookingStatus status = resource.isApprovalRequired()
-                ? BookingStatus.PENDING_APPROVAL : BookingStatus.CONFIRMED;
         Booking booking = new Booking(ownerEmail, resource, start, end, status,
                 quote.totalCredits());
         Booking saved = bookingRepository.save(booking);

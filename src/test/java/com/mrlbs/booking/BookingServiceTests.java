@@ -60,7 +60,7 @@ class BookingServiceTests {
 
     @Test
     void rejectsUnknownResourceWithStableReasonCode() {
-        when(resourceRepository.findById(resourceId)).thenReturn(Optional.empty());
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.empty());
         var start = LocalDateTime.now().plusDays(1);
 
         var rejected = assertThrows(BookingRejectedException.class,
@@ -72,7 +72,7 @@ class BookingServiceTests {
 
     @Test
     void insufficientCreditsRejectsWithoutSavingBookingOrChangingBalance() {
-        when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
         CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("3"));
         when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
         var start = LocalDateTime.now().plusDays(1);
@@ -88,7 +88,7 @@ class BookingServiceTests {
 
     @Test
     void successfulSubmissionPersistsConfirmedBookingAndDebitsTheCalculatedCost() {
-        when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
         CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("10"));
         when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
         when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -104,11 +104,12 @@ class BookingServiceTests {
         verify(bookingRepository).save(captor.capture());
         assertEquals("member@iitk.ac.in", captor.getValue().getOwnerEmail());
         verify(creditAccountRepository).save(account);
+        verify(resourceRepository).findByIdForUpdate(resourceId);
     }
 
     @Test
     void missingCreditAccountIsRejectedAsInsufficientCredits() {
-        when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
         when(creditAccountRepository.findForUpdate("new@iitk.ac.in")).thenReturn(Optional.empty());
         var start = LocalDateTime.now().plusDays(1);
 
@@ -121,7 +122,7 @@ class BookingServiceTests {
 
     @Test
     void approvalRequiredResourceCreatesPendingBookingWithoutDebitingCredits() {
-        when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
         when(resource.isApprovalRequired()).thenReturn(true);
         CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("10"));
         when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
@@ -143,5 +144,22 @@ class BookingServiceTests {
 
         assertEquals(java.util.List.of(), service.pendingApprovals());
         verify(bookingRepository).findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL);
+    }
+
+    @Test
+    void rejectsConfirmedOverlapAfterAcquiringResourceLockAndBeforeWriting() {
+        when(resourceRepository.findByIdForUpdate(resourceId)).thenReturn(Optional.of(resource));
+        when(bookingRepository.findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
+                any(), org.mockito.ArgumentMatchers.eq(BookingStatus.CONFIRMED), any(), any()))
+                .thenReturn(Optional.of(mock(Booking.class)));
+        var start = LocalDateTime.now().plusDays(1).withHour(10).withMinute(0);
+
+        var rejected = assertThrows(BookingRejectedException.class,
+                () -> service.submit("member@iitk.ac.in", new BookingRequest(resourceId, start, start.plusHours(1))));
+
+        assertEquals(BookingRejectionReason.SLOT_NO_LONGER_AVAILABLE, rejected.getReason());
+        verify(resourceRepository).findByIdForUpdate(resourceId);
+        verify(bookingRepository, never()).save(any());
+        verify(creditAccountRepository, never()).findForUpdate(any());
     }
 }
