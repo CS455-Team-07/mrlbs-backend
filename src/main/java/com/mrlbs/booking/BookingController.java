@@ -29,6 +29,19 @@ public class BookingController {
         return BookingResponse.from(bookingService.submit(user.getEmail(), request));
     }
 
+    @PostMapping("/draft")
+    @ResponseStatus(HttpStatus.CREATED)
+    public BookingResponse createDraft(@AuthenticationPrincipal OidcUser user,
+                                       @Valid @RequestBody BookingRequest request) {
+        return BookingResponse.from(bookingService.createDraft(user.getEmail(), request));
+    }
+
+    @PostMapping("/{id}/confirm")
+    public BookingResponse confirmDraft(@AuthenticationPrincipal OidcUser user,
+                                        @org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
+        return BookingResponse.from(bookingService.confirmDraft(user.getEmail(), id));
+    }
+
     @GetMapping
     public List<BookingResponse> history(@AuthenticationPrincipal OidcUser user) {
         return bookingService.history(user.getEmail()).stream().map(BookingResponse::from).toList();

@@ -27,7 +27,9 @@ import java.util.Optional;
 public class DemoAuthenticationFilter extends OncePerRequestFilter {
 
     /** Cookie name written by DemoAdminController. */
+    /** Cookie name written by DemoAdminController. */
     public static final String COOKIE_NAME = "DEMO_ADMIN_EMAIL";
+    public static final String MEMBER_COOKIE_NAME = "DEMO_MEMBER_EMAIL";
 
     private static final List<SimpleGrantedAuthority> ADMIN_AUTHORITIES =
             List.of(new SimpleGrantedAuthority("ROLE_ADMIN"));
@@ -73,7 +75,9 @@ public class DemoAuthenticationFilter extends OncePerRequestFilter {
     private static String resolveEmail(HttpServletRequest request) {
         if (request.getCookies() == null) return "";
         return Arrays.stream(request.getCookies())
-                .filter(c -> COOKIE_NAME.equals(c.getName()))
+                .filter(c -> COOKIE_NAME.equals(c.getName())
+                          || MEMBER_COOKIE_NAME.equals(c.getName())
+                          || "DEMO_USER_EMAIL".equals(c.getName()))
                 .map(Cookie::getValue)
                 .filter(v -> v != null && !v.isBlank())
                 .findFirst()

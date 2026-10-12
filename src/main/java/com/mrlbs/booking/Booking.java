@@ -67,4 +67,5 @@ public class Booking {
     public void setStartTime(LocalDateTime startTime) { this.startTime = startTime; }
     public void setEndTime(LocalDateTime endTime) { this.endTime = endTime; }
     public void setStatus(BookingStatus status) { this.status = status; }
+    public void setCreditCost(BigDecimal creditCost) { this.creditCost = creditCost; }
 }

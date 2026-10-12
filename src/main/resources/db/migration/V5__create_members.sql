@@ -1,0 +1,9 @@
+CREATE TABLE members (
+    id UUID PRIMARY KEY,
+    email VARCHAR(320) NOT NULL UNIQUE,
+    name VARCHAR(160) NOT NULL,
+    role VARCHAR(32) NOT NULL DEFAULT 'MEMBER',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX members_email_idx ON members (email);

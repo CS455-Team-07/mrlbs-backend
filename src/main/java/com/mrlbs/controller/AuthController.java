@@ -8,9 +8,47 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.mrlbs.member.MemberLoginRequest;
+import com.mrlbs.member.MemberResponse;
+import com.mrlbs.member.MemberService;
+import com.mrlbs.security.DemoAuthenticationFilter;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+
+    private final MemberService memberService;
+
+    public AuthController(MemberService memberService) {
+        this.memberService = memberService;
+    }
+
+    @PostMapping("/member-login")
+    public ResponseEntity<MemberResponse> memberLogin(
+            @Valid @RequestBody MemberLoginRequest request,
+            HttpServletResponse response) {
+        MemberResponse member = memberService.loginOrCreateMember(request.email(), request.name());
+
+        Cookie adminCookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, member.email());
+        adminCookie.setPath("/");
+        adminCookie.setMaxAge(86400 * 7);
+        adminCookie.setHttpOnly(false);
+        response.addCookie(adminCookie);
+
+        Cookie memberCookie = new Cookie(DemoAuthenticationFilter.MEMBER_COOKIE_NAME, member.email());
+        memberCookie.setPath("/");
+        memberCookie.setMaxAge(86400 * 7);
+        memberCookie.setHttpOnly(false);
+        response.addCookie(memberCookie);
+
+        return ResponseEntity.ok(member);
+    }
 
     @GetMapping("/me")
     public AuthenticatedUserResponse currentUser(@AuthenticationPrincipal OidcUser user) {
