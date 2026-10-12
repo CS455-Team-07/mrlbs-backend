@@ -40,25 +40,43 @@ public class ResourceSearchService {
             specification = specification.and((root, query, cb) -> cb.or(
                     cb.isNull(root.get("capacity")), cb.greaterThanOrEqualTo(root.get("capacity"), capacity)));
         }
-        final LocalDateTime start;
-        final LocalDateTime end;
-        if (startTime != null && endTime != null) {
-            start = startTime;
-            end = endTime;
-        } else if (date != null) {
-            start = date.atStartOfDay();
-            end = date.plusDays(1).atStartOfDay();
-        } else {
-            start = null;
-            end = null;
-        }
         return resourceRepository.findAll(specification).stream()
                 .map(resource -> {
-                    boolean available = start == null || bookingRepository
-                            .findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
-                                    resource.getId(), BookingStatus.CONFIRMED, end, start).isEmpty();
+                    boolean available;
+                    if (startTime != null && endTime != null) {
+                        available = bookingRepository
+                                .findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
+                                        resource.getId(), BookingStatus.CONFIRMED, endTime, startTime).isEmpty();
+                    } else if (date != null) {
+                        available = hasAnyOpenSlotOnDate(resource.getId(), date);
+                    } else {
+                        available = true;
+                    }
                     return ResourceSearchResponse.from(resource, available);
                 }).toList();
+    }
+
+    private boolean hasAnyOpenSlotOnDate(UUID resourceId, LocalDate date) {
+        LocalDateTime dayStart = date.atStartOfDay();
+        LocalDateTime dayEnd = date.plusDays(1).atStartOfDay();
+        List<Booking> bookings = bookingRepository
+                .findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
+                        resourceId, BookingStatus.CONFIRMED, dayEnd, dayStart);
+        if (bookings.isEmpty()) {
+            return true;
+        }
+        LocalDateTime cursor = dayStart;
+        for (Booking booking : bookings) {
+            LocalDateTime bStart = booking.getStartTime().isBefore(dayStart) ? dayStart : booking.getStartTime();
+            LocalDateTime bEnd = booking.getEndTime().isAfter(dayEnd) ? dayEnd : booking.getEndTime();
+            if (bStart.isAfter(cursor)) {
+                return true;
+            }
+            if (bEnd.isAfter(cursor)) {
+                cursor = bEnd;
+            }
+        }
+        return cursor.isBefore(dayEnd);
     }
 
     @Transactional(readOnly = true)

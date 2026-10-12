@@ -182,22 +182,24 @@ class BookingServiceTests {
     }
 
     @Test
-    void rejectsBookingWhenConcurrentSlotAlreadyAcquiredPessimistically() {
+    void createsBookingWithStatusInProgressWhenSlotClashes() {
         when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
         var start = LocalDateTime.now().plusDays(1);
         var existingBooking = mock(Booking.class);
         when(bookingRepository.findOverlappingConfirmedForUpdate(any(), any(), any()))
                 .thenReturn(java.util.List.of(existingBooking));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
 
-        var rejected = assertThrows(BookingRejectedException.class,
-                () -> service.submit("member@iitk.ac.in", new BookingRequest(resourceId, start, start.plusHours(1))));
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("100"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
 
-        assertEquals(BookingRejectionReason.SLOT_NO_LONGER_AVAILABLE, rejected.getReason());
-        verify(creditAccountRepository, never()).findForUpdate(any());
+        Booking booking = service.submit("member@iitk.ac.in", new BookingRequest(resourceId, start, start.plusHours(1)));
+
+        assertEquals(BookingStatus.IN_PROGRESS, booking.getStatus());
     }
 
     @Test
-    void rejectsBookingWhenBufferTimeIsViolated() {
+    void createsBookingWithStatusInProgressWhenBufferTimeIsViolated() {
         var rule = new com.mrlbs.resource.BookingRule();
         rule.setBufferTimeMinutes(15);
         when(resource.getBookingRule()).thenReturn(rule);
@@ -208,19 +210,23 @@ class BookingServiceTests {
         var adjacentBooking = mock(Booking.class);
         when(bookingRepository.findConfirmedInWindow(any(), any(), any()))
                 .thenReturn(java.util.List.of(adjacentBooking));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
 
-        var rejected = assertThrows(BookingRejectedException.class,
-                () -> service.submit("member@iitk.ac.in", new BookingRequest(resourceId, start, start.plusHours(1))));
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("100"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
 
-        assertEquals(BookingRejectionReason.BUFFER_TIME_VIOLATION, rejected.getReason());
+        Booking booking = service.submit("member@iitk.ac.in", new BookingRequest(resourceId, start, start.plusHours(1)));
+
+        assertEquals(BookingStatus.IN_PROGRESS, booking.getStatus());
     }
 
     @Test
-    void confirmDraftSuccessfullyAcquiresSlotDebitsCreditsAndSetsStatusConfirmed() {
+    void confirmDraftSuccessfullyAcquiresSlotDebitsCreditsAndSetsStatusConfirmedForSameBookingId() {
         UUID draftId = UUID.randomUUID();
         var start = LocalDateTime.now().plusDays(1);
         Booking draft = new Booking("member@iitk.ac.in", resource, start, start.plusHours(1),
                 BookingStatus.DRAFT, new BigDecimal("4"));
+        draft.setId(draftId);
         when(bookingRepository.findById(draftId)).thenReturn(Optional.of(draft));
         when(bookingRepository.findOverlappingConfirmedForUpdate(any(), any(), any())).thenReturn(java.util.List.of());
         when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -230,9 +236,67 @@ class BookingServiceTests {
 
         Booking confirmed = service.confirmDraft("member@iitk.ac.in", draftId);
 
+        assertEquals(draftId, confirmed.getId());
         assertEquals(BookingStatus.CONFIRMED, confirmed.getStatus());
         assertEquals(new BigDecimal("4"), confirmed.getCreditCost());
         assertEquals(new BigDecimal("6"), account.getBalance());
         verify(creditAccountRepository).save(account);
+    }
+
+    @Test
+    void confirmDraftWithClashingSlotSetsStatusInProgressEvenWithLargeCapacity() {
+        UUID draftId = UUID.randomUUID();
+        var start = LocalDateTime.now().plusDays(1);
+        Booking draft = new Booking("member@iitk.ac.in", resource, start, start.plusHours(1),
+                BookingStatus.DRAFT, new BigDecimal("4"));
+        draft.setId(draftId);
+        when(bookingRepository.findById(draftId)).thenReturn(Optional.of(draft));
+        var existingBooking = mock(Booking.class);
+        when(existingBooking.getId()).thenReturn(UUID.randomUUID());
+        when(bookingRepository.findOverlappingConfirmedForUpdate(any(), any(), any()))
+                .thenReturn(java.util.List.of(existingBooking));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("10"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+
+        Booking confirmed = service.confirmDraft("member@iitk.ac.in", draftId);
+
+        assertEquals(draftId, confirmed.getId());
+        assertEquals(BookingStatus.IN_PROGRESS, confirmed.getStatus());
+    }
+
+    @Test
+    void confirmDraftDeletesDraftWhenCriteriaFails() {
+        UUID draftId = UUID.randomUUID();
+        var start = LocalDateTime.now().plusDays(1);
+        Booking draft = new Booking("member@iitk.ac.in", resource, start, start.plusHours(1),
+                BookingStatus.DRAFT, new BigDecimal("4"));
+        draft.setId(draftId);
+        when(bookingRepository.findById(draftId)).thenReturn(Optional.of(draft));
+        when(bookingRepository.findOverlappingConfirmedForUpdate(any(), any(), any())).thenReturn(java.util.List.of());
+
+        // Insufficient balance
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("1"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+
+        assertThrows(BookingRejectedException.class,
+                () -> service.confirmDraft("member@iitk.ac.in", draftId));
+
+        verify(bookingRepository).delete(draft);
+    }
+
+    @Test
+    void deleteBookingRemovesDraftFromRepository() {
+        UUID draftId = UUID.randomUUID();
+        var start = LocalDateTime.now().plusDays(1);
+        Booking draft = new Booking("member@iitk.ac.in", resource, start, start.plusHours(1),
+                BookingStatus.DRAFT, new BigDecimal("4"));
+        draft.setId(draftId);
+        when(bookingRepository.findById(draftId)).thenReturn(Optional.of(draft));
+
+        service.deleteBooking("member@iitk.ac.in", draftId);
+
+        verify(bookingRepository).delete(draft);
     }
 }

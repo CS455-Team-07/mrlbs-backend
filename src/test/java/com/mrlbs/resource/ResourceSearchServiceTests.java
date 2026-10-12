@@ -40,14 +40,52 @@ class ResourceSearchServiceTests {
         LocalDate date = LocalDate.of(2030, 5, 1);
         when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
                 .thenReturn(List.of(resource));
-        when(bookingRepository.findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
-                eq(id), eq(BookingStatus.CONFIRMED), any(), any())).thenReturn(Optional.empty());
+        when(bookingRepository.findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
+                eq(id), eq(BookingStatus.CONFIRMED), any(), any())).thenReturn(List.of());
 
         var results = service.search("micro", date, 2);
 
         assertEquals(1, results.size());
         assertEquals("Confocal Microscope", results.getFirst().name());
         assertTrue(results.getFirst().available());
+    }
+
+    @Test
+    void showsOpenWhenResourceHasPartialBookingOnDate() {
+        UUID id = UUID.randomUUID();
+        LabResource resource = resource(id, "Lecture Hall", "Lecture Hall", 54);
+        LocalDate date = LocalDate.of(2026, 10, 17);
+        Booking partialBooking = new Booking("user@iitk.ac.in", resource,
+                date.atTime(2, 0), date.atTime(3, 0), BookingStatus.CONFIRMED, BigDecimal.ZERO);
+
+        when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+                .thenReturn(List.of(resource));
+        when(bookingRepository.findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
+                eq(id), eq(BookingStatus.CONFIRMED), any(), any())).thenReturn(List.of(partialBooking));
+
+        var results = service.search("Lecture Hall", date, null);
+
+        assertEquals(1, results.size());
+        assertTrue(results.getFirst().available(), "Resource should be OPEN if at least 1 slot is available");
+    }
+
+    @Test
+    void showsBookedWhenEntireDayIsBooked() {
+        UUID id = UUID.randomUUID();
+        LabResource resource = resource(id, "Lecture Hall", "Lecture Hall", 54);
+        LocalDate date = LocalDate.of(2026, 10, 17);
+        Booking fullDay = new Booking("user@iitk.ac.in", resource,
+                date.atStartOfDay(), date.plusDays(1).atStartOfDay(), BookingStatus.CONFIRMED, BigDecimal.ZERO);
+
+        when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+                .thenReturn(List.of(resource));
+        when(bookingRepository.findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
+                eq(id), eq(BookingStatus.CONFIRMED), any(), any())).thenReturn(List.of(fullDay));
+
+        var results = service.search("Lecture Hall", date, null);
+
+        assertEquals(1, results.size());
+        assertFalse(results.getFirst().available(), "Resource should be BOOKED if 0 slots available");
     }
 
     @Test

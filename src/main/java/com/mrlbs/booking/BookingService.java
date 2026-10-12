@@ -22,13 +22,23 @@ public class BookingService {
     private final LabResourceRepository resourceRepository;
     private final CreditAccountRepository creditAccountRepository;
     private final BookingPriceCalculator priceCalculator;
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
                           CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator) {
+        this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
+                          CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator,
+                          @org.springframework.beans.factory.annotation.Autowired(required = false)
+                          org.springframework.transaction.PlatformTransactionManager transactionManager) {
         this.bookingRepository = bookingRepository;
         this.resourceRepository = resourceRepository;
         this.creditAccountRepository = creditAccountRepository;
         this.priceCalculator = priceCalculator;
+        this.transactionManager = transactionManager;
     }
 
     @Transactional
@@ -72,29 +82,79 @@ public class BookingService {
         LocalDateTime start = booking.getStartTime();
         LocalDateTime end = booking.getEndTime();
 
-        validateDuration(resource, start, end);
-        validateQuota(ownerEmail, resource);
+        try {
+            validateDuration(resource, start, end);
+            validateQuota(ownerEmail, resource);
 
-        List<Booking> overlapping = acquireSlotWithPessimisticLock(resource, start, end);
-        validateBufferTime(resource, start, end, overlapping);
+            List<Booking> overlapping = bookingRepository.findOverlappingConfirmedForUpdate(resource.getId(), start, end);
+            boolean hasOverlap = overlapping != null && overlapping.stream()
+                    .anyMatch(b -> !b.getId().equals(booking.getId()));
+            boolean hasClash = hasOverlap || checkBufferViolation(resource, start, end, overlapping);
 
-        BigDecimal contention = BigDecimal.valueOf(1 + (overlapping != null ? overlapping.size() : 0));
-        Duration duration = Duration.between(start, end);
-        var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, contention,
-                new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
-        booking.setCreditCost(quote.totalCredits());
+            BigDecimal contention = BigDecimal.valueOf(1 + (overlapping != null ? overlapping.size() : 0));
+            Duration duration = Duration.between(start, end);
+            var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, contention,
+                    new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
+            booking.setCreditCost(quote.totalCredits());
 
-        CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
-        if (account == null || account.getBalance().compareTo(quote.totalCredits()) < 0) {
-            throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
-                    "The member does not have enough credits for this booking.");
+            CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
+            if (account == null || account.getBalance().compareTo(quote.totalCredits()) < 0) {
+                throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
+                        "The member does not have enough credits for this booking.");
+            }
+
+            account.debit(quote.totalCredits());
+            creditAccountRepository.save(account);
+
+            booking.setStatus(hasClash ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED);
+            return bookingRepository.save(booking);
+        } catch (RuntimeException e) {
+            // If it didn't meet criteria, delete the draft from the database
+            deleteDraftSafely(booking.getId());
+            bookingRepository.delete(booking);
+            throw e;
         }
+    }
 
-        account.debit(quote.totalCredits());
-        creditAccountRepository.save(account);
+    private void deleteDraftSafely(UUID bookingId) {
+        if (transactionManager != null) {
+            try {
+                org.springframework.transaction.support.TransactionTemplate template =
+                        new org.springframework.transaction.support.TransactionTemplate(
+                                transactionManager,
+                                new org.springframework.transaction.support.DefaultTransactionDefinition(
+                                        org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW));
+                template.executeWithoutResult(status -> {
+                    bookingRepository.deleteById(bookingId);
+                });
+                return;
+            } catch (Exception ignored) {
+            }
+        }
+        bookingRepository.deleteById(bookingId);
+    }
 
-        booking.setStatus(BookingStatus.CONFIRMED);
-        return bookingRepository.save(booking);
+    @Transactional
+    public void deleteBooking(String ownerEmail, UUID bookingId) {
+        validateIdentity(ownerEmail);
+        Booking booking = bookingRepository.findById(bookingId).orElse(null);
+        if (booking == null) {
+            return;
+        }
+        if (!booking.getOwnerEmail().equalsIgnoreCase(ownerEmail)) {
+            throw new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
+                    "Booking does not belong to the authenticated member.");
+        }
+        // If credits were already debited for a confirmed/in_progress/pending booking, refund them
+        if (booking.getStatus() == BookingStatus.IN_PROGRESS || booking.getStatus() == BookingStatus.PENDING || booking.getStatus() == BookingStatus.CONFIRMED || booking.getStatus() == BookingStatus.PENDING_APPROVAL) {
+            if (booking.getCreditCost() != null && booking.getCreditCost().signum() > 0) {
+                creditAccountRepository.findForUpdate(ownerEmail).ifPresent(account -> {
+                    account.credit(booking.getCreditCost());
+                    creditAccountRepository.save(account);
+                });
+            }
+        }
+        bookingRepository.delete(booking);
     }
 
     @Transactional
@@ -108,8 +168,9 @@ public class BookingService {
         validateDuration(resource, start, end);
         validateQuota(ownerEmail, resource);
 
-        List<Booking> overlapping = acquireSlotWithPessimisticLock(resource, start, end);
-        validateBufferTime(resource, start, end, overlapping);
+        List<Booking> overlapping = bookingRepository.findOverlappingConfirmedForUpdate(resource.getId(), start, end);
+        boolean hasOverlap = overlapping != null && !overlapping.isEmpty();
+        boolean hasClash = hasOverlap || checkBufferViolation(resource, start, end, overlapping);
 
         BigDecimal contention = BigDecimal.valueOf(1 + (overlapping != null ? overlapping.size() : 0));
         Duration duration = Duration.between(start, end);
@@ -122,7 +183,8 @@ public class BookingService {
                     "The member does not have enough credits for this booking.");
         }
 
-        Booking booking = new Booking(ownerEmail, resource, start, end, BookingStatus.CONFIRMED,
+        Booking booking = new Booking(ownerEmail, resource, start, end,
+                hasClash ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED,
                 quote.totalCredits());
         Booking saved = bookingRepository.save(booking);
         account.debit(quote.totalCredits());
@@ -173,7 +235,7 @@ public class BookingService {
             return;
         }
         long activeCount = bookingRepository.countActiveBookingsForMember(
-                ownerEmail, resource.getId(), List.of(BookingStatus.CONFIRMED, BookingStatus.IN_PROGRESS));
+                ownerEmail, resource.getId(), List.of(BookingStatus.CONFIRMED, BookingStatus.PENDING, BookingStatus.PENDING_APPROVAL, BookingStatus.IN_PROGRESS));
         if (activeCount >= rule.getMaxBookingsPerMember()) {
             throw new BookingRejectedException(BookingRejectionReason.QUOTA_EXCEEDED,
                     "Member has reached the quota of " + rule.getMaxBookingsPerMember() + " active bookings for this resource.");
@@ -191,22 +253,44 @@ public class BookingService {
         return overlapping != null ? overlapping : List.of();
     }
 
-    private void validateBufferTime(LabResource resource, LocalDateTime start, LocalDateTime end, List<Booking> directOverlaps) {
+    @Transactional(readOnly = true)
+    public boolean checkClash(Booking booking) {
+        if (booking == null || booking.getResource() == null) {
+            return false;
+        }
+        LabResource resource = booking.getResource();
+        LocalDateTime start = booking.getStartTime();
+        LocalDateTime end = booking.getEndTime();
+        List<Booking> overlapping = bookingRepository.findOverlappingConfirmed(resource.getId(), start, end);
+        boolean hasOverlap = overlapping != null && overlapping.stream()
+                .anyMatch(b -> booking.getId() == null || !b.getId().equals(booking.getId()));
+        if (hasOverlap) {
+            return true;
+        }
+        return checkBufferViolation(resource, start, end, overlapping);
+    }
+
+    private boolean checkBufferViolation(LabResource resource, LocalDateTime start, LocalDateTime end, List<Booking> directOverlaps) {
         BookingRule rule = resource.getBookingRule();
         if (rule == null || rule.getBufferTimeMinutes() == null || rule.getBufferTimeMinutes() <= 0) {
-            return;
+            return false;
         }
         LocalDateTime bufferStart = start.minusMinutes(rule.getBufferTimeMinutes());
         LocalDateTime bufferEnd = end.plusMinutes(rule.getBufferTimeMinutes());
         List<Booking> windowBookings = bookingRepository.findConfirmedInWindow(
                 resource.getId(), bufferStart, bufferEnd);
         if (windowBookings != null) {
-            boolean hasBufferViolation = windowBookings.stream()
+            return windowBookings.stream()
                     .anyMatch(b -> directOverlaps == null || !directOverlaps.contains(b));
-            if (hasBufferViolation) {
-                throw new BookingRejectedException(BookingRejectionReason.BUFFER_TIME_VIOLATION,
-                        "Booking violates the required buffer time of " + rule.getBufferTimeMinutes() + " minutes between sessions.");
-            }
+        }
+        return false;
+    }
+
+    private void validateBufferTime(LabResource resource, LocalDateTime start, LocalDateTime end, List<Booking> directOverlaps) {
+        if (checkBufferViolation(resource, start, end, directOverlaps)) {
+            BookingRule rule = resource.getBookingRule();
+            throw new BookingRejectedException(BookingRejectionReason.BUFFER_TIME_VIOLATION,
+                    "Booking violates the required buffer time of " + rule.getBufferTimeMinutes() + " minutes between sessions.");
         }
     }
 

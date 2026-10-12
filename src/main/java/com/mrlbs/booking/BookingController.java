@@ -33,13 +33,23 @@ public class BookingController {
     @ResponseStatus(HttpStatus.CREATED)
     public BookingResponse createDraft(@AuthenticationPrincipal OidcUser user,
                                        @Valid @RequestBody BookingRequest request) {
-        return BookingResponse.from(bookingService.createDraft(user.getEmail(), request));
+        Booking draft = bookingService.createDraft(user.getEmail(), request);
+        boolean clashes = bookingService.checkClash(draft);
+        return BookingResponse.from(draft, clashes);
     }
 
     @PostMapping("/{id}/confirm")
     public BookingResponse confirmDraft(@AuthenticationPrincipal OidcUser user,
                                         @org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
-        return BookingResponse.from(bookingService.confirmDraft(user.getEmail(), id));
+        Booking confirmed = bookingService.confirmDraft(user.getEmail(), id);
+        return BookingResponse.from(confirmed, confirmed.getStatus() == BookingStatus.IN_PROGRESS);
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteBooking(@AuthenticationPrincipal OidcUser user,
+                              @org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
+        bookingService.deleteBooking(user.getEmail(), id);
     }
 
     @GetMapping

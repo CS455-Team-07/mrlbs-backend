@@ -58,6 +58,7 @@ public class Booking {
     }
 
     public UUID getId() { return id; }
+    public void setId(UUID id) { this.id = id; }
     public String getOwnerEmail() { return ownerEmail; }
     public LabResource getResource() { return resource; }
     public LocalDateTime getStartTime() { return startTime; }
