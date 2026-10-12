@@ -4,9 +4,9 @@ spring:
   profiles:
     default: dev
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/mrlbs}
-    username: ${DB_USERNAME:mrlbs}
-    password: ${DB_PASSWORD:}
+    url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:postgresql://localhost:5432/mrlbs}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:mrlbs}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:}}
   jpa:
     open-in-view: false
     hibernate:

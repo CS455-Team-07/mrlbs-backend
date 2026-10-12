@@ -1,99 +1,108 @@
-
 package com.mrlbs.resource;
 
+import com.mrlbs.booking.BookingRepository;
+import com.mrlbs.booking.credit.CreditAccount;
+import com.mrlbs.booking.credit.CreditAccountRepository;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.util.List;
 
 @Component
-@Profile("dev")
+@Profile({"dev", "postgres"})
 public class ResourceDataInitializer implements CommandLineRunner {
 
-    private final ResourceRepository resourceRepository;
+    private final LabResourceRepository labResourceRepository;
+    private final BookingRepository bookingRepository;
+    private final CreditAccountRepository creditAccountRepository;
 
-    public ResourceDataInitializer(ResourceRepository resourceRepository) {
-        this.resourceRepository = resourceRepository;
+    public ResourceDataInitializer(LabResourceRepository labResourceRepository,
+                                   BookingRepository bookingRepository,
+                                   CreditAccountRepository creditAccountRepository) {
+        this.labResourceRepository = labResourceRepository;
+        this.bookingRepository = bookingRepository;
+        this.creditAccountRepository = creditAccountRepository;
     }
 
     @Override
+    @Transactional
     public void run(String... args) {
-        // Avoid inserting duplicate sample resources.
-        if (resourceRepository.count() > 0) {
-            return;
-        }
+        // 1. Clear previous resources and dependent bookings
+        bookingRepository.deleteAll();
+        labResourceRepository.deleteAll();
 
-        // 1. High-Tier GPU
-        Resource gpu = createResource(
-                "High-Tier GPU",
-                "GPU",
-                "Computer Centre",
-                1,
-                BookingPolicy.APPROVAL_REQUIRED,
-                60,
-                240,
-                30,
-                2
-        );
+        // 2. Initialize Member Credit Accounts for Testing Dynamic Credit Pricing & Bookings
+        seedCreditAccount("member@iitk.ac.in", new BigDecimal("1000"));
+        seedCreditAccount("student@iitk.ac.in", new BigDecimal("1000"));
+        seedCreditAccount("admin@iitk.ac.in", new BigDecimal("1000"));
 
-        // 2. Computer Lab
-        Resource lab = createResource(
-                "Computer Lab",
-                "Laboratory",
-                "Block 9",
-                60,
-                BookingPolicy.OPEN,
-                30,
-                180,
-                15,
-                3
-        );
+        // 3. Lecture Halls (L1 - L5)
+        // Base rate: 0, Min duration: 1 hour, Max multiplier: 3, Approval: No (OPEN), Rule: FCFS
+        LabResource l1 = createLectureHall("L1", 100);
+        LabResource l2 = createLectureHall("L2", 50);
+        LabResource l3 = createLectureHall("L3", 50);
+        LabResource l4 = createLectureHall("L4", 50);
+        LabResource l5 = createLectureHall("L5", 100);
 
-        // 3. Lecture Hall
-        Resource lectureHall = createResource(
-                "Lecture Hall",
-                "Lecture Hall",
-                "Academic Area",
-                120,
-                BookingPolicy.APPROVAL_REQUIRED,
-                30,
-                240,
-                15,
-                2
-        );
+        // 4. GPU Resources (GPU-A100-01, GPU-H100-01)
+        // No capacity limit, Min duration: 1 hour, Max multiplier: 3, Approval: Yes (APPROVAL_REQUIRED), Rule: FCFS
+        LabResource gpuA100 = createGpuResource("GPU-A100-01", new BigDecimal("20.00"));
+        LabResource gpuH100 = createGpuResource("GPU-H100-01", new BigDecimal("35.00"));
 
-        // BookingRule is persisted through Resource's cascade mapping.
-        resourceRepository.save(gpu);
-        resourceRepository.save(lab);
-        resourceRepository.save(lectureHall);
+        labResourceRepository.saveAll(List.of(l1, l2, l3, l4, l5, gpuA100, gpuH100));
 
-        System.out.println("Sample resources initialized successfully.");
+        System.out.println("Initialized 7 test resources (L1-L5, GPU-A100-01, GPU-H100-01) and credit accounts.");
     }
 
-    private Resource createResource(
-            String name,
-            String type,
-            String location,
-            int capacity,
-            BookingPolicy bookingPolicy,
-            int minDurationMinutes,
-            int maxDurationMinutes,
-            int bufferTimeMinutes,
-            int maxBookingsPerMember
-    ) {
+    private void seedCreditAccount(String email, BigDecimal initialBalance) {
+        creditAccountRepository.findById(email).ifPresentOrElse(
+                account -> {},
+                () -> creditAccountRepository.save(new CreditAccount(email, initialBalance))
+        );
+    }
+
+    private LabResource createLectureHall(String name, int capacity) {
+        LabResource hall = new LabResource(
+                name,
+                "Lecture Hall",
+                "Lecture Hall Complex",
+                capacity,
+                List.of("First Come, First Served (FCFS)"),
+                new BigDecimal("1.00"), // Minimum billable duration: 1 hour
+                new BigDecimal("3.00"), // Maximum contention multiplier: 3
+                BigDecimal.ZERO         // Base credit rate: 0
+        );
         BookingRule rule = new BookingRule();
-        rule.setBookingPolicy(bookingPolicy);
-        rule.setMinDurationMinutes(minDurationMinutes);
-        rule.setMaxDurationMinutes(maxDurationMinutes);
-        rule.setBufferTimeMinutes(bufferTimeMinutes);
-        rule.setMaxBookingsPerMember(maxBookingsPerMember);
+        rule.setBookingPolicy(BookingPolicy.OPEN); // Admin approval required: No
+        rule.setMinDurationMinutes(60);            // 1 hour minimum
+        rule.setMaxDurationMinutes(240);
+        rule.setBufferTimeMinutes(15);
+        rule.setMaxBookingsPerMember(3);
+        hall.setBookingRule(rule);
+        return hall;
+    }
 
-        Resource resource = new Resource();
-        resource.setName(name);
-        resource.setType(type);
-        resource.setLocation(location);
-        resource.setCapacity(capacity);
-        resource.setBookingRule(rule);
-
-        return resource;
+    private LabResource createGpuResource(String name, BigDecimal baseRate) {
+        LabResource gpu = new LabResource(
+                name,
+                "GPU",
+                "GPU Lab",
+                null,                   // no capacity limit
+                List.of("First Come, First Served (FCFS)"),
+                new BigDecimal("1.00"), // Minimum billable duration: 1 hour
+                new BigDecimal("3.00"), // Maximum contention multiplier: 3
+                baseRate
+        );
+        BookingRule rule = new BookingRule();
+        rule.setBookingPolicy(BookingPolicy.APPROVAL_REQUIRED); // Admin approval required: Yes
+        rule.setMinDurationMinutes(60);                        // 1 hour minimum
+        rule.setMaxDurationMinutes(240);
+        rule.setBufferTimeMinutes(30);
+        rule.setMaxBookingsPerMember(2);
+        gpu.setBookingRule(rule);
+        return gpu;
     }
 }

@@ -26,7 +26,7 @@ public class ResourceSearchService {
 
     @Transactional(readOnly = true)
     public List<ResourceSearchResponse> search(String type, LocalDate date, Integer capacity) {
-        Specification<LabResource> specification = (root, query, cb) -> cb.conjunction();
+        Specification<LabResource> specification = (root, query, cb) -> cb.isTrue(root.get("active"));
         if (type != null && !type.isBlank()) {
             String term = "%" + type.trim().toLowerCase() + "%";
             specification = specification.and((root, query, cb) -> cb.like(cb.lower(root.get("type")), term));

@@ -15,9 +15,16 @@ target/
 # Local environment files
 .env
 .env.*
-!.env.example
+*.local.env
+postgres.local.env
+!*.env.example
+
+# Logs
+*.log
+run.log
 
 # OS files
 .DS_Store
 Thumbs.db
 .tools/
+

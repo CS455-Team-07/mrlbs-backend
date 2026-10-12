@@ -64,6 +64,8 @@ public class SecurityConfig {
                                 "/actuator/health",
                                 "/api/auth/csrf")
                         .permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/resources", "/api/resources/**")
+                        .permitAll()
                         .anyRequest()
                         .authenticated());
 

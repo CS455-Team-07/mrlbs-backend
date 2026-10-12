@@ -35,8 +35,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpectedException(Exception exception) {
+        exception.printStackTrace();
         return ProblemDetail.forStatusAndDetail(
                 HttpStatus.INTERNAL_SERVER_ERROR,
-                "An unexpected error occurred.");
+                "An unexpected error occurred: " + exception.getMessage());
     }
 }
