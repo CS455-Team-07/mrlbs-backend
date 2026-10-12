@@ -6,7 +6,7 @@ import java.math.BigDecimal;
 
 public record ResourceResponse(UUID id, String name, String type, String location, Integer capacity,
                                BigDecimal baseRate, BigDecimal minimumDurationHours, BigDecimal maximumContentionMultiplier,
-                               List<String> rules) {
+                               List<String> rules, BookingRule bookingRule) {
 
     public static ResourceResponse from(LabResource resource) {
         return new ResourceResponse(
@@ -18,6 +18,7 @@ public record ResourceResponse(UUID id, String name, String type, String locatio
                 resource.getBaseRate(),
                 resource.getMinimumDurationHours(),
                 resource.getMaximumContentionMultiplier(),
-                resource.getRules());
+                resource.getRules(),
+                resource.getBookingRule());
     }
 }
