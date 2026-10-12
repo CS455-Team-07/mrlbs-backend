@@ -94,6 +94,39 @@ class ResourceControllerTests {
     }
 
     @Test
+    void adminCanCreateResourceWithCustomMinMaxDuration() throws Exception {
+        mockMvc.perform(post("/api/resources")
+                        .with(user("admin").roles("ADMIN"))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "GPU Server A",
+                                  "type": "GPU",
+                                  "location": "Server Room 1",
+                                  "rules": ["Authorized access only"],
+                                  "minDurationMinutes": 45,
+                                  "maxDurationMinutes": 240,
+                                  "bufferTimeMinutes": 20,
+                                  "maxBookingsPerMember": 2
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").isNotEmpty())
+                .andExpect(jsonPath("$.bookingRule.minDurationMinutes").value(45))
+                .andExpect(jsonPath("$.bookingRule.maxDurationMinutes").value(240))
+                .andExpect(jsonPath("$.bookingRule.bufferTimeMinutes").value(20))
+                .andExpect(jsonPath("$.bookingRule.maxBookingsPerMember").value(2));
+
+        var resource = resourceRepository.findAll().getFirst();
+        org.assertj.core.api.Assertions.assertThat(resource.getBookingRule()).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(resource.getBookingRule().getMinDurationMinutes()).isEqualTo(45);
+        org.assertj.core.api.Assertions.assertThat(resource.getBookingRule().getMaxDurationMinutes()).isEqualTo(240);
+        org.assertj.core.api.Assertions.assertThat(resource.getBookingRule().getBufferTimeMinutes()).isEqualTo(20);
+        org.assertj.core.api.Assertions.assertThat(resource.getBookingRule().getMaxBookingsPerMember()).isEqualTo(2);
+    }
+
+    @Test
     void memberCannotCreateResource() throws Exception {
         mockMvc.perform(post("/api/resources")
                         .with(user("member").roles("MEMBER"))

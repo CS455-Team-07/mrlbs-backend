@@ -31,6 +31,45 @@ public class LabResourceService {
                 request.maximumContentionMultiplier() == null ? new BigDecimal("3.00") : request.maximumContentionMultiplier(),
                 request.baseRate() == null ? BigDecimal.ZERO : request.baseRate());
 
+        BookingRule rule = request.bookingRule();
+        if (rule == null) {
+            if (request.minDurationMinutes() != null || request.maxDurationMinutes() != null
+                    || request.approvalRequired() != null || request.bufferTimeMinutes() != null
+                    || request.maxBookingsPerMember() != null) {
+                rule = new BookingRule();
+                BookingPolicy policy = Boolean.TRUE.equals(request.approvalRequired())
+                        ? BookingPolicy.APPROVAL_REQUIRED
+                        : BookingPolicy.OPEN;
+                rule.setBookingPolicy(policy);
+                rule.setMinDurationMinutes(request.minDurationMinutes() != null ? request.minDurationMinutes() : 30);
+                rule.setMaxDurationMinutes(request.maxDurationMinutes() != null ? request.maxDurationMinutes() : 180);
+                rule.setBufferTimeMinutes(request.bufferTimeMinutes() != null ? request.bufferTimeMinutes() : 15);
+                rule.setMaxBookingsPerMember(request.maxBookingsPerMember() != null ? request.maxBookingsPerMember() : 3);
+            }
+        }
+
+        if (rule != null) {
+            if (rule.getBookingPolicy() == null) {
+                rule.setBookingPolicy(Boolean.TRUE.equals(request.approvalRequired()) ? BookingPolicy.APPROVAL_REQUIRED : BookingPolicy.OPEN);
+            }
+            if (rule.getMinDurationMinutes() == null) {
+                rule.setMinDurationMinutes(request.minDurationMinutes() != null ? request.minDurationMinutes() : 30);
+            }
+            if (rule.getMaxDurationMinutes() == null) {
+                rule.setMaxDurationMinutes(request.maxDurationMinutes() != null ? request.maxDurationMinutes() : 180);
+            }
+            if (rule.getBufferTimeMinutes() == null) {
+                rule.setBufferTimeMinutes(request.bufferTimeMinutes() != null ? request.bufferTimeMinutes() : 15);
+            }
+            if (rule.getMaxBookingsPerMember() == null) {
+                rule.setMaxBookingsPerMember(request.maxBookingsPerMember() != null ? request.maxBookingsPerMember() : 3);
+            }
+
+            validateRules(rule);
+            BookingRule savedRule = bookingRuleRepository.save(rule);
+            resource.setBookingRule(savedRule);
+        }
+
         return resourceRepository.save(resource);
     }
 

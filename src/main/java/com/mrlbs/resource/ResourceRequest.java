@@ -1,9 +1,9 @@
 package com.mrlbs.resource;
 
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
@@ -17,5 +17,25 @@ public record ResourceRequest(
         @DecimalMin(value = "0.00") BigDecimal baseRate,
         @DecimalMin(value = "0.01") BigDecimal minimumDurationHours,
         @DecimalMin(value = "0.00") BigDecimal maximumContentionMultiplier,
-        @NotEmpty List<@NotBlank @Size(max = 1000) String> rules) {
+        @NotEmpty List<@NotBlank @Size(max = 1000) String> rules,
+        BookingRule bookingRule,
+        Integer minDurationMinutes,
+        Integer maxDurationMinutes,
+        Integer bufferTimeMinutes,
+        Integer maxBookingsPerMember,
+        Boolean approvalRequired) {
+
+    public ResourceRequest(
+            String name,
+            String type,
+            String location,
+            Integer capacity,
+            BigDecimal baseRate,
+            BigDecimal minimumDurationHours,
+            BigDecimal maximumContentionMultiplier,
+            List<String> rules) {
+        this(name, type, location, capacity, baseRate, minimumDurationHours, maximumContentionMultiplier, rules,
+                null, null, null, null, null, null);
+    }
 }
+

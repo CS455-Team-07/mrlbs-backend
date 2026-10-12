@@ -225,3 +225,48 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 **Decision:** Accepted.
 
 **Reason:** Enables precise time window availability matching during member search.
+
+# 2026-10-12 — Seed Scoped Admins in Members Table
+
+**Task and context:** Add the scoped administrators (`lhc@iitk.ac.in`, `gpus@iitk.ac.in`, and `kdlab@iitk.ac.in`) with the role `ADMIN` to the `members` table in the Neon PostgreSQL database.
+
+**Prompt:** "Map.of("email", "lhc@iitk.ac.in",   "name", "LHC Admin",     "scope", AdminResourceScope.TYPE_LECTURE_HALL),
+                Map.of("email", "gpus@iitk.ac.in",  "name", "GPU Admin",     "scope", AdminResourceScope.TYPE_GPU),
+                Map.of("email", "kdlab@iitk.ac.in", "name", "KD Lab Admin",  "scope", AdminResourceScope.TYPE_KD_LAB)
+
+add these admins to the member table in the database , mention role as ADMIN"
+
+**AI output or response:** Inspected the database schema for table `members` (`id`, `email`, `name`, `role`, `created_at`). Executed an idempotent SQL upsert into the Neon PostgreSQL database inserting `lhc@iitk.ac.in` (LHC Admin), `gpus@iitk.ac.in` (GPU Admin), and `kdlab@iitk.ac.in` (KD Lab Admin) with `role = 'ADMIN'`.
+
+**Student/team evaluation:** Verified against the Neon database that all three admin records are present with role `ADMIN` alongside existing members.
+
+**Errors, risks, or hallucinations identified:** Verified column definitions and uniqueness constraints on `email` to avoid duplicate insertion errors.
+
+**Changes made after evaluating the AI output:** Inserted records directly into the Neon PostgreSQL `members` table and verified rows.
+
+**Final accepted artifact or output:** Updated `members` table records in Neon PostgreSQL database.
+
+**Decision:** Accepted.
+
+**Reason:** Aligns database-persisted administrators with the configured scoped administrator identities in `AdminResourceScope.java` and `adminConfig.ts`.
+
+# 2026-10-12 — Support Min/Max Duration in Resource Creation
+
+**Task and context:** Allow administrators to specify booking rule parameters (specifically minimum and maximum duration in minutes, buffer time, and max bookings per member) while adding a new resource, matching the configuration options available when editing resources.
+
+**Prompt:** "in the admin pages , when admin is adding a resource ther e is no option for min max duration but when admin is configuring the resources , it is clearly visible that there is min max duration , so now admin should be able to add the min max duration while adding resource as well , please implement this correctly"
+
+**AI output or response:** Updated `ResourceRequest.java` to support `minDurationMinutes`, `maxDurationMinutes`, `bufferTimeMinutes`, `maxBookingsPerMember`, `approvalRequired`, and nested `bookingRule`. Updated `LabResourceService.java` to construct and persist custom `BookingRule` objects during `create()` instead of only applying hardcoded defaults. Updated `ResourceResponse.java` to include the created `bookingRule`. Added unit tests in `ResourceControllerTests.java`.
+
+**Student/team evaluation:** All 26 backend tests in Maven test suite passed (`ResourceControllerTests`, `BookingServiceDraftCostTest`, etc.).
+
+**Errors, risks, or hallucinations identified:** Preserved backwards compatibility in `ResourceRequest` with an overloaded 8-parameter constructor so legacy callers and tests without duration parameters continue to work unchanged.
+
+**Changes made after evaluating the AI output:** Updated `ResourceRequest.java`, `LabResourceService.java`, `ResourceResponse.java`, and `ResourceControllerTests.java`.
+
+**Final accepted artifact or output:** Backend resource creation supporting customizable booking duration limits and booking rules.
+
+**Decision:** Accepted.
+
+**Reason:** Enables full parity between resource creation and resource configuration duration settings.
+
