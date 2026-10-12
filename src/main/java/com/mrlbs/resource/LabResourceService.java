@@ -61,6 +61,12 @@ public class LabResourceService {
         return resource;
     }
 
+    @Transactional(readOnly = true)
+    public LabResource getResourceIncludingInactive(UUID resourceId) {
+        return resourceRepository.findById(resourceId)
+                .orElseThrow(() -> new ResourceNotFoundException(resourceId));
+    }
+
     @Transactional
     public void restoreResource(UUID resourceId) {
         LabResource resource = resourceRepository.findById(resourceId)

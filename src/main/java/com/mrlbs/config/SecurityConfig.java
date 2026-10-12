@@ -54,7 +54,11 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
+                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                        // Demo identity-switcher endpoints are not auth-protected;
+                        // exempt them from CSRF so the login page can POST without
+                        // a prior session cookie.
+                        .ignoringRequestMatchers("/api/demo/**"))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
                                 "/oauth2/**",
@@ -62,7 +66,8 @@ public class SecurityConfig {
                                 "/error",
                                 "/api/health",
                                 "/actuator/health",
-                                "/api/auth/csrf")
+                                "/api/auth/csrf",
+                                "/api/demo/**")
                         .permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/resources", "/api/resources/**")
                         .permitAll()

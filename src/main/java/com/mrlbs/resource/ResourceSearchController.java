@@ -24,8 +24,10 @@ public class ResourceSearchController {
     public List<ResourceSearchResponse> search(
             @RequestParam(required = false) String type,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) java.time.LocalDateTime startTime,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) java.time.LocalDateTime endTime,
             @RequestParam(required = false) Integer capacity) {
-        return searchService.search(type, date, capacity);
+        return searchService.search(type, date, startTime, endTime, capacity);
     }
 
     @GetMapping("/{resourceId}/availability")

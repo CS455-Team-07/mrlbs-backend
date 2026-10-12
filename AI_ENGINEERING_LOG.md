@@ -187,3 +187,41 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 **Decision:** Modified.
 
 **Reason:** Search and availability now use persisted booking rows and expose only the data required to choose a slot.
+# 2026-10-12 — Remove data initializer and purge test database
+
+**Task and context:** The user reported that dummy resources and booking rules were re-initializing each time the backend was started. The user requested disabling automatic data initialization entirely and clearing all existing test data from the database.
+
+**Prompt:** "the thing is , whenever i am running the backend these data is getting initialised again and again , i dont want the data to get initialised like that , delete any data present in that and when the admin creates a resource it should refelct in the database"
+
+**AI output or response:** Deleted `ResourceDataInitializer.java` to prevent any automatic seeding of test data on startup. Executed a database truncate task against the Neon PostgreSQL database clearing `bookings`, `resource_rules`, `resources`, and `booking_rules`. Verified that subsequent backend starts run without inserting seed data.
+
+**Student/team evaluation:** Tested that the Neon PostgreSQL database now contains 0 resources and 0 booking rules, and verified that newly created resources created through the API persist correctly.
+
+**Errors, risks, or hallucinations identified:** None. Pre-existing test resources were purged as requested.
+
+**Changes made after evaluating the AI output:** Removed `ResourceDataInitializer.java`, executed one-off truncate script, cleaned and repackaged the JAR archive (`mvnw clean package -DskipTests`) so `target\mrlbs-backend-0.0.1-SNAPSHOT.jar` no longer contains any initializer class, updated `runpostgres.ps1`, and verified with `powershell -File .\runpostgres.ps1` that the backend launches without any initialization output.
+
+**Final accepted artifact or output:** Rebuilt backend JAR without `ResourceDataInitializer`, purged Neon database, and updated `runpostgres.ps1`.
+
+**Decision:** Accepted.
+
+**Reason:** Running `.\runpostgres.ps1` previously reused an old pre-compiled JAR containing the initialiser. Recompiling the JAR cleanly and purging the tables completely resolves the re-initialization issue.
+# 2026-10-12 — Support startTime and endTime parameters in resource search
+
+**Task and context:** Enable members to search resources with precise start and end time filters so availability checks can evaluate the specific time window requested.
+
+**Prompt:** "now we will get an availability after we enter the start and end time in the availability section of a resource but a member should be able to select the start and end time in the starting where the date searching option is there , please change the flow from the current flow to therequired flow as i said"
+
+**AI output or response:** Updated `ResourceSearchController.java` to accept `@RequestParam LocalDateTime startTime` and `endTime`. Updated `ResourceSearchService.java` to evaluate availability for the exact `[startTime, endTime]` window when supplied, retaining default whole-day availability when only date is given. Rebuilt the application JAR.
+
+**Student/team evaluation:** All 25 Maven tests pass without failure. Tested that searching with start/end time queries works as expected.
+
+**Errors, risks, or hallucinations identified:** None. Preserved backwards-compatible overload `search(String type, LocalDate date, Integer capacity)`.
+
+**Changes made after evaluating the AI output:** Updated `ResourceSearchController.java` and `ResourceSearchService.java`, ran unit tests and packaged JAR.
+
+**Final accepted artifact or output:** Updated `ResourceSearchController.java` and `ResourceSearchService.java`.
+
+**Decision:** Accepted.
+
+**Reason:** Enables precise time window availability matching during member search.

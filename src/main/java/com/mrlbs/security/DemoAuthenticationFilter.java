@@ -2,6 +2,7 @@ package com.mrlbs.security;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -14,40 +15,80 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
-/** Supplies a local demo identity when authentication is disabled. */
+/** Supplies a local demo identity when authentication is disabled.
+ *  The active admin email is read from the {@code DEMO_ADMIN_EMAIL} cookie so
+ *  the frontend demo-switcher can change identities without a backend restart.
+ */
 public class DemoAuthenticationFilter extends OncePerRequestFilter {
 
-    private static final String DEMO_EMAIL = "demo@mrlbs.local";
-    private static final List<SimpleGrantedAuthority> AUTHORITIES =
+    /** Cookie name written by DemoAdminController. */
+    public static final String COOKIE_NAME = "DEMO_ADMIN_EMAIL";
+
+    private static final List<SimpleGrantedAuthority> ADMIN_AUTHORITIES =
             List.of(new SimpleGrantedAuthority("ROLE_ADMIN"));
+    private static final List<SimpleGrantedAuthority> MEMBER_AUTHORITIES =
+            List.of(new SimpleGrantedAuthority("ROLE_MEMBER"));
 
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
             HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
+
+        String email = resolveEmail(request);
+        boolean isScopedAdmin = AdminResourceScope.isScopedAdmin(email);
+        List<SimpleGrantedAuthority> authorities = isScopedAdmin ? ADMIN_AUTHORITIES : MEMBER_AUTHORITIES;
+        String name = resolveName(email, isScopedAdmin);
+
         Instant now = Instant.now();
         OidcIdToken idToken = new OidcIdToken(
                 "local-demo-token",
                 now,
                 now.plusSeconds(3600),
                 Map.of(
-                        "iss", "https://accounts.google.com",
-                        "sub", "local-demo-user",
-                        "email", DEMO_EMAIL,
+                        "iss",            "https://accounts.google.com",
+                        "sub",            "demo-" + email,
+                        "email",          email,
                         "email_verified", true,
-                        "name", "Demo Admin",
-                        "hd", "mrlbs.local"));
-        DefaultOidcUser principal = new DefaultOidcUser(AUTHORITIES, idToken, "sub");
-        OAuth2AuthenticationToken authentication = new OAuth2AuthenticationToken(
-                principal, AUTHORITIES, "google");
+                        "name",           name,
+                        "hd",             email.contains("@") ? email.split("@")[1] : "iitk.ac.in"));
+
+        DefaultOidcUser principal = new DefaultOidcUser(authorities, idToken, "sub");
+        OAuth2AuthenticationToken authentication =
+                new OAuth2AuthenticationToken(principal, authorities, "google");
 
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
         filterChain.doFilter(request, response);
+    }
+
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    private static String resolveEmail(HttpServletRequest request) {
+        if (request.getCookies() == null) return "";
+        return Arrays.stream(request.getCookies())
+                .filter(c -> COOKIE_NAME.equals(c.getName()))
+                .map(Cookie::getValue)
+                .filter(v -> v != null && !v.isBlank())
+                .findFirst()
+                .orElse("");
+    }
+
+    private static String resolveName(String email, boolean isScopedAdmin) {
+        if (!isScopedAdmin) {
+            return email.isEmpty() ? "Guest" : email.split("@")[0];
+        }
+        return switch (email.toLowerCase()) {
+            case "lhc@iitk.ac.in"   -> "LHC Admin";
+            case "gpus@iitk.ac.in"  -> "GPU Admin";
+            case "kdlab@iitk.ac.in" -> "KD Lab Admin";
+            default                  -> email.split("@")[0];
+        };
     }
 }

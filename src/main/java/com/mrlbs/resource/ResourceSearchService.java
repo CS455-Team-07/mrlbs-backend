@@ -26,6 +26,11 @@ public class ResourceSearchService {
 
     @Transactional(readOnly = true)
     public List<ResourceSearchResponse> search(String type, LocalDate date, Integer capacity) {
+        return search(type, date, null, null, capacity);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ResourceSearchResponse> search(String type, LocalDate date, LocalDateTime startTime, LocalDateTime endTime, Integer capacity) {
         Specification<LabResource> specification = (root, query, cb) -> cb.isTrue(root.get("active"));
         if (type != null && !type.isBlank()) {
             String term = "%" + type.trim().toLowerCase() + "%";
@@ -35,11 +40,21 @@ public class ResourceSearchService {
             specification = specification.and((root, query, cb) -> cb.or(
                     cb.isNull(root.get("capacity")), cb.greaterThanOrEqualTo(root.get("capacity"), capacity)));
         }
-        LocalDateTime start = date == null ? null : date.atStartOfDay();
-        LocalDateTime end = date == null ? null : date.plusDays(1).atStartOfDay();
+        final LocalDateTime start;
+        final LocalDateTime end;
+        if (startTime != null && endTime != null) {
+            start = startTime;
+            end = endTime;
+        } else if (date != null) {
+            start = date.atStartOfDay();
+            end = date.plusDays(1).atStartOfDay();
+        } else {
+            start = null;
+            end = null;
+        }
         return resourceRepository.findAll(specification).stream()
                 .map(resource -> {
-                    boolean available = date == null || bookingRepository
+                    boolean available = start == null || bookingRepository
                             .findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
                                     resource.getId(), BookingStatus.CONFIRMED, end, start).isEmpty();
                     return ResourceSearchResponse.from(resource, available);

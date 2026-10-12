@@ -1,7 +1,7 @@
 # ==============================================================================
 # Script: runpostgres.ps1
 # Description: Loads postgres.local.env and launches the backend connected
-#              to Neon PostgreSQL (with dev profile for sample resource seeding).
+#              to Neon PostgreSQL.
 # ==============================================================================
 
 $ErrorActionPreference = "Stop"
