@@ -79,23 +79,55 @@ Set `capacity` to `null` when the resource has no capacity limit. A successful r
 
 ## How to run
 
-```bash
-./mvnw spring-boot:run
+### Option A: Running with PostgreSQL (Cloud / Neon / Local DB)
+
+A convenience script [`runpostgres.ps1`](runpostgres.ps1) is provided for running against PostgreSQL:
+
+```powershell
+.\runpostgres.ps1
 ```
 
-To build the executable JAR:
+**What this script does:**
+1. Checks for and frees port `8080` if another backend process is currently holding it.
+2. Automatically loads environment variables from `postgres.local.env` (`SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`).
+3. Compiles the executable JAR if not already built.
+4. Starts the application with `--spring.profiles.active=postgres`.
 
-```bash
-./mvnw clean package
+> **Note:** The `postgres.local.env` file is git-ignored for security. Place your database connection string and credentials in `postgres.local.env` in this directory or the workspace root.
+
+### Option B: Running with In-Memory H2 (Quick Local Demo)
+
+To run the backend with an ephemeral in-memory H2 database (no external database required):
+
+- **Windows:**
+  ```powershell
+  .\mvnw.cmd spring-boot:run
+  ```
+- **macOS / Linux:**
+  ```bash
+  ./mvnw spring-boot:run
+  ```
+
+### Building the Executable JAR
+
+```powershell
+.\mvnw.cmd clean package -DskipTests
 ```
 
 ## How to run tests
 
-```bash
-./mvnw test
+All unit and integration tests use an embedded H2 test database and mock identities:
+
+```powershell
+.\mvnw.cmd test
 ```
 
-Tests use the `test` profile and an in-memory H2 database, so they do not require PostgreSQL.
+## Initialized Sample Test Dataset
+
+When starting under the `postgres` or `dev` profiles, the application pre-seeds test resources:
+- **Lecture Halls:** `L1` (cap 100), `L2` (cap 50), `L3` (cap 50), `L4` (cap 50), `L5` (cap 100) — base credit rate `0`, minimum duration `1 hr`, open booking policy.
+- **GPU Resources:** `GPU-A100-01` (base rate `20` credits/hr) and `GPU-H100-01` (base rate `35` credits/hr) — admin approval required.
+- **Test Accounts:** `member@iitk.ac.in`, `student@iitk.ac.in`, and `admin@iitk.ac.in` seeded with `1,000` credits each for testing dynamic credit pricing and booking submissions.
 
 ## Current status
 
