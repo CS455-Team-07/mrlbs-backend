@@ -44,4 +44,9 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             @Param("ownerEmail") String ownerEmail,
             @Param("resourceId") UUID resourceId,
             @Param("statuses") List<BookingStatus> statuses);
+
+    @Query("SELECT DISTINCT b.resource.id FROM Booking b WHERE b.status IN (com.mrlbs.booking.BookingStatus.CONFIRMED, com.mrlbs.booking.BookingStatus.PENDING, com.mrlbs.booking.BookingStatus.PENDING_APPROVAL, com.mrlbs.booking.BookingStatus.IN_PROGRESS) AND b.startTime < :end AND b.endTime > :start")
+    List<UUID> findBookedResourceIdsInSlot(
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end);
 }

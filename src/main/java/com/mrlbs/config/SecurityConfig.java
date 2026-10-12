@@ -55,10 +55,8 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
-                        // Demo identity-switcher and member-login endpoints are not auth-protected;
-                        // exempt them from CSRF so the login page can POST without
-                        // a prior session cookie.
-                        .ignoringRequestMatchers("/api/demo/**", "/api/auth/member-login"))
+                        // Demo identity-switcher, member-login, and AI assistant endpoints
+                        .ignoringRequestMatchers("/api/demo/**", "/api/auth/member-login", "/api/ai/**"))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
                                 "/oauth2/**",
@@ -68,7 +66,8 @@ public class SecurityConfig {
                                 "/actuator/health",
                                 "/api/auth/csrf",
                                 "/api/auth/member-login",
-                                "/api/demo/**")
+                                "/api/demo/**",
+                                "/api/ai/**")
                         .permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/resources", "/api/resources/**")
                         .permitAll()

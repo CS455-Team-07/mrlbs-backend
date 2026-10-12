@@ -50,6 +50,7 @@ public class LabResource {
     @Column(name = "maximum_contention_multiplier", nullable = false, precision = 8, scale = 2)
     private BigDecimal maximumContentionMultiplier = new BigDecimal("3.00");
 
+    @org.hibernate.annotations.BatchSize(size = 50)
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "resource_rules", joinColumns = @JoinColumn(name = "resource_id"))
     @Column(name = "rule_text", nullable = false, length = 1000)
