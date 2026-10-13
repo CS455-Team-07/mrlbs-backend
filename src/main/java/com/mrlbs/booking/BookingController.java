@@ -52,6 +52,9 @@ public class BookingController {
         bookingService.deleteBooking(user.getEmail(), id);
     }
 
+
+
+
     @GetMapping
     public List<BookingResponse> history(@AuthenticationPrincipal OidcUser user) {
         return bookingService.history(user.getEmail()).stream().map(BookingResponse::from).toList();

@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 public interface BookingRepository extends JpaRepository<Booking, UUID> {
-    List<Booking> findByOwnerEmailOrderByStartTimeDesc(String ownerEmail);
+    List<Booking> findByMemberIdOrderByStartTimeDesc(UUID memberId);
 
     List<Booking> findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
             UUID resourceId, BookingStatus status, LocalDateTime before, LocalDateTime after);
@@ -39,9 +39,9 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             @Param("bufferStart") LocalDateTime bufferStart,
             @Param("bufferEnd") LocalDateTime bufferEnd);
 
-    @Query("SELECT COUNT(b) FROM Booking b WHERE b.ownerEmail = :ownerEmail AND b.resource.id = :resourceId AND b.status IN :statuses")
+    @Query("SELECT COUNT(b) FROM Booking b WHERE b.memberId = :memberId AND b.resource.id = :resourceId AND b.status IN :statuses")
     long countActiveBookingsForMember(
-            @Param("ownerEmail") String ownerEmail,
+            @Param("memberId") UUID memberId,
             @Param("resourceId") UUID resourceId,
             @Param("statuses") List<BookingStatus> statuses);
 }
