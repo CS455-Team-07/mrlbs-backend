@@ -1,6 +1,7 @@
 package com.mrlbs.resource;
 
 public enum BookingPolicy {
-    OPEN,
-    APPROVAL_REQUIRED
+    FCFS,
+    APPROVAL_REQUIRED,
+    OPEN
 }

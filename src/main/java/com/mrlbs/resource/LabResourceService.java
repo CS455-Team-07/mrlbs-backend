@@ -39,7 +39,7 @@ public class LabResourceService {
                 rule = new BookingRule();
                 BookingPolicy policy = Boolean.TRUE.equals(request.approvalRequired())
                         ? BookingPolicy.APPROVAL_REQUIRED
-                        : BookingPolicy.OPEN;
+                        : BookingPolicy.FCFS;
                 rule.setBookingPolicy(policy);
                 rule.setMinDurationMinutes(request.minDurationMinutes() != null ? request.minDurationMinutes() : 30);
                 rule.setMaxDurationMinutes(request.maxDurationMinutes() != null ? request.maxDurationMinutes() : 180);
@@ -50,7 +50,7 @@ public class LabResourceService {
 
         if (rule != null) {
             if (rule.getBookingPolicy() == null) {
-                rule.setBookingPolicy(Boolean.TRUE.equals(request.approvalRequired()) ? BookingPolicy.APPROVAL_REQUIRED : BookingPolicy.OPEN);
+                rule.setBookingPolicy(Boolean.TRUE.equals(request.approvalRequired()) ? BookingPolicy.APPROVAL_REQUIRED : BookingPolicy.FCFS);
             }
             if (rule.getMinDurationMinutes() == null) {
                 rule.setMinDurationMinutes(request.minDurationMinutes() != null ? request.minDurationMinutes() : 30);

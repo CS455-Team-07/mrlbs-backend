@@ -50,6 +50,7 @@ public class LabResource {
     @Column(name = "maximum_contention_multiplier", nullable = false, precision = 8, scale = 2)
     private BigDecimal maximumContentionMultiplier = new BigDecimal("3.00");
 
+    @org.hibernate.annotations.BatchSize(size = 50)
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "resource_rules", joinColumns = @JoinColumn(name = "resource_id"))
     @Column(name = "rule_text", nullable = false, length = 1000)
@@ -80,7 +81,7 @@ public class LabResource {
 
     private BookingRule createDefaultBookingRule() {
         BookingRule rule = new BookingRule();
-        rule.setBookingPolicy(BookingPolicy.OPEN);
+        rule.setBookingPolicy(BookingPolicy.FCFS);
         int minMinutes = this.minimumDurationHours != null ? (int) (this.minimumDurationHours.doubleValue() * 60) : 60;
         rule.setMinDurationMinutes(Math.max(minMinutes, 30));
         rule.setMaxDurationMinutes(Math.max(minMinutes * 4, 180));

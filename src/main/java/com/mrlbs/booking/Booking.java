@@ -34,7 +34,6 @@ public class Booking {
     public UUID getMemberId() { return memberId; }
     public void setMemberId(UUID memberId) { this.memberId = memberId; }
 
-
     @Transient
     private String ownerEmail;
 
@@ -101,3 +100,4 @@ public class Booking {
         this.createdAt = LocalDateTime.now();
     }
 }
+
