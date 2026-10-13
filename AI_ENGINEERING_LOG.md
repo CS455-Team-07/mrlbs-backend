@@ -226,6 +226,34 @@ The requested OIDC authentication and institutional-domain enforcement were impl
 
 **Reason:** Enables precise time window availability matching during member search.
 
+# 2026-10-13 — Booking overlap semantics: exact/subset waitlist vs partial clash rejection
+
+**Task and context:**
+Tighten the booking-clash rules so a request that exactly matches or sits entirely inside an existing booked slot is treated as a waitlist candidate, while true partial overlaps and buffer violations remain blocked with `SLOT_CONFLICT`.
+
+**Prompt:**
+The user requested that the booking flow must: (1) put exact same-slot matches into `IN_PROGRESS`, (2) allow if the requested slot is a subset of an already booked slot, (3) reject partial overlaps with the clash popup rather than showing the confirm path, and (4) apply buffer-time rules to the same conflict calculation.
+
+**AI output or response:**
+Adjusted the overlap classification to treat an incoming booking as `EXACT_MATCH` when its window is identical to or fully contained within an existing confirmed slot, and to reject anything else as `PARTIAL_CONFLICT`. Kept buffer checks in the same classification path so near-miss windows are rejected before a booking is saved or confirmed.
+
+**Student/team evaluation:**
+The backend booking tests exercise both the contained-slot waitlist case and the true partial-overlap rejection. The test suite is aligned to the business rule the product requires.
+
+**Errors, risks, or hallucinations identified:**
+The earlier regression incorrectly treated a subset window as a partial overlap. That was a stale test expectation rather than a service bug after the rule change.
+
+**Changes made after evaluating the AI output:**
+Updated the conflict classifier in `BookingService`, corrected the partial-overlap unit test so it uses a truly extending overlap, and kept the subset-of-booked-slot waitlist assertion in place.
+
+**Final accepted artifact or output:**
+Booking service logic and regression tests in `src/main/java/com/mrlbs/booking/BookingService.java` and `src/test/java/com/mrlbs/booking/BookingServiceTests.java`.
+
+**Decision:** Accepted.
+
+**Reason:**
+This matches the requested product rule: exact or fully-contained booked windows go to `IN_PROGRESS`, while any clipped or partially extending overlap is a clash and is rejected.
+
 # 2026-10-12 — Seed Scoped Admins in Members Table
 
 **Task and context:** Add the scoped administrators (`lhc@iitk.ac.in`, `gpus@iitk.ac.in`, and `kdlab@iitk.ac.in`) with the role `ADMIN` to the `members` table in the Neon PostgreSQL database.

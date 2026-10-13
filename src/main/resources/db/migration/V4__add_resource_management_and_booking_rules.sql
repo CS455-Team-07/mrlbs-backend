@@ -1,6 +1,6 @@
 CREATE TABLE booking_rules (
     id BIGSERIAL PRIMARY KEY,
-    booking_policy VARCHAR(64) NOT NULL DEFAULT 'OPEN',
+    booking_policy VARCHAR(64) NOT NULL DEFAULT 'FCFS',
     min_duration_minutes INTEGER NOT NULL DEFAULT 30,
     max_duration_minutes INTEGER NOT NULL DEFAULT 180,
     buffer_time_minutes INTEGER NOT NULL DEFAULT 15,

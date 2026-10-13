@@ -18,6 +18,12 @@ import java.util.UUID;
 
 @Service
 public class BookingService {
+    private enum BookingConflictType {
+        NONE,
+        EXACT_MATCH,
+        PARTIAL_CONFLICT
+    }
+
     private final BookingRepository bookingRepository;
     private final LabResourceRepository resourceRepository;
     private final CreditAccountRepository creditAccountRepository;
@@ -53,6 +59,12 @@ public class BookingService {
         validateQuota(ownerEmail, resource);
 
         List<Booking> overlapping = bookingRepository.findOverlappingConfirmed(resource.getId(), start, end);
+        BookingConflictType conflict = detectConflict(resource, start, end, overlapping, null);
+        if (conflict == BookingConflictType.PARTIAL_CONFLICT) {
+            throw new BookingRejectedException(BookingRejectionReason.SLOT_CONFLICT,
+                    "This time window clashes with an already booked slot. Please select the exact slot to go to waitlist or choose a different time.");
+        }
+
         BigDecimal contention = BigDecimal.valueOf(1 + (overlapping != null ? overlapping.size() : 0));
         Duration duration = Duration.between(start, end);
         var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, contention,
@@ -87,9 +99,11 @@ public class BookingService {
             validateQuota(ownerEmail, resource);
 
             List<Booking> overlapping = bookingRepository.findOverlappingConfirmedForUpdate(resource.getId(), start, end);
-            boolean hasOverlap = overlapping != null && overlapping.stream()
-                    .anyMatch(b -> !b.getId().equals(booking.getId()));
-            boolean hasClash = hasOverlap || checkBufferViolation(resource, start, end, overlapping);
+            BookingConflictType conflict = detectConflict(resource, start, end, overlapping, booking);
+            if (conflict == BookingConflictType.PARTIAL_CONFLICT) {
+                throw new BookingRejectedException(BookingRejectionReason.SLOT_CONFLICT,
+                        "This time window clashes with an already booked slot. Please select the exact slot to go to waitlist or choose a different time.");
+            }
 
             BigDecimal contention = BigDecimal.valueOf(1 + (overlapping != null ? overlapping.size() : 0));
             Duration duration = Duration.between(start, end);
@@ -106,7 +120,7 @@ public class BookingService {
             account.debit(quote.totalCredits());
             creditAccountRepository.save(account);
 
-            booking.setStatus(hasClash ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED);
+            booking.setStatus(conflict == BookingConflictType.EXACT_MATCH ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED);
             return bookingRepository.save(booking);
         } catch (RuntimeException e) {
             // If it didn't meet criteria, delete the draft from the database
@@ -169,8 +183,11 @@ public class BookingService {
         validateQuota(ownerEmail, resource);
 
         List<Booking> overlapping = bookingRepository.findOverlappingConfirmedForUpdate(resource.getId(), start, end);
-        boolean hasOverlap = overlapping != null && !overlapping.isEmpty();
-        boolean hasClash = hasOverlap || checkBufferViolation(resource, start, end, overlapping);
+        BookingConflictType conflict = detectConflict(resource, start, end, overlapping, null);
+        if (conflict == BookingConflictType.PARTIAL_CONFLICT) {
+            throw new BookingRejectedException(BookingRejectionReason.SLOT_CONFLICT,
+                    "This time window clashes with an already booked slot. Please select the exact slot to go to waitlist or choose a different time.");
+        }
 
         BigDecimal contention = BigDecimal.valueOf(1 + (overlapping != null ? overlapping.size() : 0));
         Duration duration = Duration.between(start, end);
@@ -184,7 +201,7 @@ public class BookingService {
         }
 
         Booking booking = new Booking(ownerEmail, resource, start, end,
-                hasClash ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED,
+                conflict == BookingConflictType.EXACT_MATCH ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED,
                 quote.totalCredits());
         Booking saved = bookingRepository.save(booking);
         account.debit(quote.totalCredits());
@@ -262,15 +279,42 @@ public class BookingService {
         LocalDateTime start = booking.getStartTime();
         LocalDateTime end = booking.getEndTime();
         List<Booking> overlapping = bookingRepository.findOverlappingConfirmed(resource.getId(), start, end);
-        boolean hasOverlap = overlapping != null && overlapping.stream()
-                .anyMatch(b -> booking.getId() == null || !b.getId().equals(booking.getId()));
-        if (hasOverlap) {
-            return true;
-        }
-        return checkBufferViolation(resource, start, end, overlapping);
+        return detectConflict(resource, start, end, overlapping, booking) != BookingConflictType.NONE;
     }
 
-    private boolean checkBufferViolation(LabResource resource, LocalDateTime start, LocalDateTime end, List<Booking> directOverlaps) {
+    private BookingConflictType detectConflict(LabResource resource, LocalDateTime start, LocalDateTime end,
+                                              List<Booking> overlapping, Booking currentBooking) {
+        List<Booking> relevantOverlaps = filterOutCurrentBooking(currentBooking, overlapping);
+        if (relevantOverlaps != null && !relevantOverlaps.isEmpty()) {
+            boolean anyExactOrSubsetMatch = relevantOverlaps.stream()
+                    .anyMatch(existing -> existing != null
+                            && existing.getStartTime() != null
+                            && existing.getEndTime() != null
+                            && !start.isBefore(existing.getStartTime())
+                            && !end.isAfter(existing.getEndTime()));
+            if (anyExactOrSubsetMatch) {
+                return BookingConflictType.EXACT_MATCH;
+            }
+            return BookingConflictType.PARTIAL_CONFLICT;
+        }
+
+        return checkBufferViolation(resource, start, end, relevantOverlaps, currentBooking)
+                ? BookingConflictType.PARTIAL_CONFLICT
+                : BookingConflictType.NONE;
+    }
+
+    private List<Booking> filterOutCurrentBooking(Booking currentBooking, List<Booking> bookings) {
+        if (bookings == null || bookings.isEmpty() || currentBooking == null || currentBooking.getId() == null) {
+            return bookings == null ? List.of() : bookings;
+        }
+        return bookings.stream()
+                .filter(existing -> existing != null
+                        && (existing.getId() == null || !existing.getId().equals(currentBooking.getId())))
+                .toList();
+    }
+
+    private boolean checkBufferViolation(LabResource resource, LocalDateTime start, LocalDateTime end,
+                                        List<Booking> directOverlaps, Booking currentBooking) {
         BookingRule rule = resource.getBookingRule();
         if (rule == null || rule.getBufferTimeMinutes() == null || rule.getBufferTimeMinutes() <= 0) {
             return false;
@@ -280,14 +324,15 @@ public class BookingService {
         List<Booking> windowBookings = bookingRepository.findConfirmedInWindow(
                 resource.getId(), bufferStart, bufferEnd);
         if (windowBookings != null) {
-            return windowBookings.stream()
+            List<Booking> relevantWindowBookings = filterOutCurrentBooking(currentBooking, windowBookings);
+            return relevantWindowBookings.stream()
                     .anyMatch(b -> directOverlaps == null || !directOverlaps.contains(b));
         }
         return false;
     }
 
     private void validateBufferTime(LabResource resource, LocalDateTime start, LocalDateTime end, List<Booking> directOverlaps) {
-        if (checkBufferViolation(resource, start, end, directOverlaps)) {
+        if (checkBufferViolation(resource, start, end, directOverlaps, null)) {
             BookingRule rule = resource.getBookingRule();
             throw new BookingRejectedException(BookingRejectionReason.BUFFER_TIME_VIOLATION,
                     "Booking violates the required buffer time of " + rule.getBufferTimeMinutes() + " minutes between sessions.");

@@ -80,7 +80,7 @@ public class LabResource {
 
     private BookingRule createDefaultBookingRule() {
         BookingRule rule = new BookingRule();
-        rule.setBookingPolicy(BookingPolicy.OPEN);
+        rule.setBookingPolicy(BookingPolicy.FCFS);
         int minMinutes = this.minimumDurationHours != null ? (int) (this.minimumDurationHours.doubleValue() * 60) : 60;
         rule.setMinDurationMinutes(Math.max(minMinutes, 30));
         rule.setMaxDurationMinutes(Math.max(minMinutes * 4, 180));
