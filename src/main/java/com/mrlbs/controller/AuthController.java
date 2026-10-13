@@ -67,17 +67,17 @@ public class AuthController {
         MemberResponse member = memberService.loginOrCreateMember(email, name);
 
         if (!authenticationEnabled) {
-            Cookie adminCookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, member.email());
-            adminCookie.setPath("/");
-            adminCookie.setMaxAge(86400 * 7);
-            adminCookie.setHttpOnly(false);
-            response.addCookie(adminCookie);
-
             Cookie memberCookie = new Cookie(DemoAuthenticationFilter.MEMBER_COOKIE_NAME, member.email());
             memberCookie.setPath("/");
             memberCookie.setMaxAge(86400 * 7);
             memberCookie.setHttpOnly(false);
             response.addCookie(memberCookie);
+
+            // Clear any stale admin identity so it cannot bleed into this member session.
+            Cookie clearAdminCookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, "");
+            clearAdminCookie.setPath("/");
+            clearAdminCookie.setMaxAge(0);
+            response.addCookie(clearAdminCookie);
         }
 
         return ResponseEntity.ok(member);
