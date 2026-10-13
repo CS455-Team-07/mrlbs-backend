@@ -59,8 +59,8 @@ public class GeminiClient {
             return Optional.empty();
         }
 
-        String url = String.format("%s/models/%s:generateContent?key=%s",
-                config.getBaseUrl(), config.getModel(), config.getApiKey());
+        String url = String.format("%s/models/%s:generateContent",
+                config.getBaseUrl(), config.getModel());
 
         Map<String, Object> requestPayload = Map.of(
                 "contents", List.of(

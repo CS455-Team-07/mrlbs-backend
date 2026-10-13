@@ -18,10 +18,14 @@ public class AiController {
 
     private final AiRecommendationService recommendationService;
     private final GeminiClient geminiClient;
+    private final AiRateLimiter rateLimiter;
 
-    public AiController(AiRecommendationService recommendationService, GeminiClient geminiClient) {
+    public AiController(AiRecommendationService recommendationService,
+                        GeminiClient geminiClient,
+                        AiRateLimiter rateLimiter) {
         this.recommendationService = recommendationService;
         this.geminiClient = geminiClient;
+        this.rateLimiter = rateLimiter;
     }
 
     /**
@@ -40,9 +44,17 @@ public class AiController {
      * BOOK-109: Parses a natural-language booking query into structured search criteria.
      */
     @PostMapping("/parse-intent")
-    public ResponseEntity<ExtractedIntent> parseIntent(
+    public ResponseEntity<?> parseIntent(
             @Valid @RequestBody AiPromptRequest request,
-            @RequestParam(required = false) String contextDate) {
+            @RequestParam(required = false) String contextDate,
+            java.security.Principal principal,
+            jakarta.servlet.http.HttpServletRequest httpRequest) {
+        String clientKey = resolveClientKey(principal, httpRequest);
+        if (!rateLimiter.tryAcquire(clientKey)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Rate limit exceeded. Please wait a moment before sending more AI requests."));
+        }
+
         LocalDate refDate = (contextDate != null && !contextDate.isBlank())
                 ? LocalDate.parse(contextDate)
                 : LocalDate.now();
@@ -55,8 +67,30 @@ public class AiController {
      */
     @PostMapping("/recommend")
     public ResponseEntity<AiRecommendationResponse> getRecommendations(
-            @Valid @RequestBody AiPromptRequest request) {
+            @Valid @RequestBody AiPromptRequest request,
+            java.security.Principal principal,
+            jakarta.servlet.http.HttpServletRequest httpRequest) {
+        String clientKey = resolveClientKey(principal, httpRequest);
+        if (!rateLimiter.tryAcquire(clientKey)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS)
+                    .body(AiRecommendationResponse.error("Rate limit exceeded. Please wait a moment before sending more AI requests."));
+        }
+
         AiRecommendationResponse response = recommendationService.getRecommendations(request);
         return ResponseEntity.ok(response);
+    }
+
+    private String resolveClientKey(java.security.Principal principal, jakarta.servlet.http.HttpServletRequest httpRequest) {
+        if (principal != null && principal.getName() != null && !principal.getName().isBlank()) {
+            return principal.getName();
+        }
+        if (httpRequest != null) {
+            String forwarded = httpRequest.getHeader("X-Forwarded-For");
+            if (forwarded != null && !forwarded.isBlank()) {
+                return forwarded.split(",")[0].trim();
+            }
+            return httpRequest.getRemoteAddr();
+        }
+        return "anonymous";
     }
 }

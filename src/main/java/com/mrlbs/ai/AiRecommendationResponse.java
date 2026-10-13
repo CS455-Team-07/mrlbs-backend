@@ -13,6 +13,20 @@ public record AiRecommendationResponse(
         List<ResourceRecommendation> alternatives,
         boolean configurationError
 ) {
+    public static AiRecommendationResponse error(String message) {
+        return new AiRecommendationResponse(
+                false,
+                message,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                List.of(),
+                false
+        );
+    }
+
     public static AiRecommendationResponse configError(String message) {
         return new AiRecommendationResponse(
                 false,
@@ -32,7 +46,7 @@ public record AiRecommendationResponse(
                 true,
                 followUpQuestion,
                 followUpQuestion,
-                followUpQuestion,
+                null,
                 suggestions != null ? suggestions : List.of(),
                 intent,
                 null,
