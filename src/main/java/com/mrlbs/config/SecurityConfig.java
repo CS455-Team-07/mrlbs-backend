@@ -55,8 +55,8 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
-                        // Demo identity-switcher, member-login, and AI assistant endpoints
-                        .ignoringRequestMatchers("/api/demo/**", "/api/auth/member-login", "/api/ai/**"))
+                        // Demo identity-switcher and member-login endpoints
+                        .ignoringRequestMatchers("/api/demo/**", "/api/auth/member-login"))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
                                 "/oauth2/**",
@@ -66,8 +66,7 @@ public class SecurityConfig {
                                 "/actuator/health",
                                 "/api/auth/csrf",
                                 "/api/auth/member-login",
-                                "/api/demo/**",
-                                "/api/ai/**")
+                                "/api/demo/**")
                         .permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/resources", "/api/resources/**")
                         .permitAll()

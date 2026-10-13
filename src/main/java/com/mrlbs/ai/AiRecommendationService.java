@@ -55,6 +55,13 @@ public class AiRecommendationService {
             return new ExtractedIntent(null, null, null, null, null, "Please enter what type of resource you are looking for.");
         }
 
+        if (isGreeting(prompt)) {
+            return new ExtractedIntent(
+                    null, null, null, null, null,
+                    "Hello! How can I help you with resource booking today? What type of resource are you looking for (e.g. Lecture Hall, Lab, GPU Cluster), and for which date?"
+            );
+        }
+
         LocalDate today = referenceDate != null ? referenceDate : LocalDate.now();
 
         // 1. Instant local fast path: if prompt has clear unambiguous criteria, return in < 1ms
@@ -75,8 +82,25 @@ public class AiRecommendationService {
         return localIntent;
     }
 
+    private boolean isGreeting(String prompt) {
+        if (prompt == null || prompt.isBlank()) return false;
+        String clean = prompt.trim().toLowerCase(Locale.ROOT).replaceAll("[!?,.]", "");
+        return clean.equals("hi") || clean.equals("hello") || clean.equals("hey") ||
+                clean.equals("hii") || clean.equals("heyy") || clean.equals("good morning") ||
+                clean.equals("good afternoon") || clean.equals("good evening") ||
+                clean.equals("greetings") || clean.equals("help") || clean.equals("start") ||
+                clean.equals("hi there") || clean.equals("hello there");
+    }
+
     private boolean isHighConfidence(ExtractedIntent intent, String prompt) {
         String lower = prompt.toLowerCase(Locale.ROOT).trim();
+        if (isGreeting(prompt)) {
+            return true;
+        }
+        // Direct type selection chips (e.g. "Lecture Hall", "KD Lab", "GPU Cluster")
+        if (lower.equals("lecture hall") || lower.equals("kd lab") || lower.equals("lab") || lower.equals("gpu") || lower.equals("gpu cluster") || lower.equals("microscope")) {
+            return true;
+        }
         // Clear date + recognized resource type (e.g. "lecture for 19 th oct")
         if (intent.hasDate() && intent.resourceType() != null) {
             return true;
@@ -152,6 +176,9 @@ public class AiRecommendationService {
         String lower = raw.trim().toLowerCase(Locale.ROOT);
         if (lower.contains("lecture") || lower.contains("hall") || lower.contains("classroom")) {
             return "Lecture Hall";
+        }
+        if (lower.contains("kd") || lower.contains("lab")) {
+            return "KD Lab";
         }
         if (lower.contains("gpu") || lower.contains("cluster")) {
             return "GPU";
@@ -229,10 +256,12 @@ public class AiRecommendationService {
             } catch (Exception ignored) {}
         }
 
-        // Resource type extraction (recognize "lecture", "hall", "classroom")
+        // Resource type extraction (recognize "lecture", "hall", "classroom", "lab", "kd")
         String type = null;
         if (lower.contains("lecture") || lower.contains("classroom") || lower.contains("hall") || lower.contains("room")) {
             type = "Lecture Hall";
+        } else if (lower.contains("kd") || lower.contains("lab")) {
+            type = "KD Lab";
         } else if (lower.contains("gpu") || lower.contains("compute") || lower.contains("cluster")) {
             type = "GPU";
         } else if (lower.contains("microscope")) {
@@ -313,12 +342,24 @@ public class AiRecommendationService {
         ExtractedIntent rawIntent = parseIntent(request.prompt(), contextDate);
         ExtractedIntent intent = mergeWithPreviousIntent(rawIntent, request.previousIntent());
 
+        if (isGreeting(request.prompt())) {
+            String welcomeMsg = "Hello! How can I help you with resource booking today? What type of resource are you looking for, and for which date?";
+            List<String> suggestions = List.of("Lecture Hall", "KD Lab", "GPU Cluster", "Today", "Tomorrow");
+            return AiRecommendationResponse.followUp(welcomeMsg, rawIntent, suggestions);
+        }
+
         // Date is mandatory per requirement
         if (!intent.hasDate()) {
             String question = intent.clarifyingQuestion() != null
                     ? intent.clarifyingQuestion()
-                    : "Please specify the date for your booking (e.g., tomorrow, 2026-10-15).";
-            List<String> dateSuggestions = List.of("Today", "Tomorrow", "Next Monday");
+                    : (intent.resourceType() == null
+                        ? "Could you please specify which resource type (e.g., Lecture Hall, Lab, GPU Cluster) and date you need?"
+                        : "Please specify the date for your booking (e.g., today, tomorrow, 2026-10-15).");
+            List<String> dateSuggestions = new ArrayList<>();
+            if (intent.resourceType() == null) {
+                dateSuggestions.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster"));
+            }
+            dateSuggestions.addAll(List.of("Today", "Tomorrow", "Next Monday"));
             return AiRecommendationResponse.followUp(question, intent, dateSuggestions);
         }
 
@@ -383,11 +424,24 @@ public class AiRecommendationService {
         String engagementPrompt = null;
         List<String> suggestedRefinements = new ArrayList<>();
 
+        boolean missingType = (intent.resourceType() == null);
         boolean missingTime = (intent.startTime() == null);
         boolean missingCapacity = (intent.minCapacity() == null);
         String displayType = intent.resourceType() != null ? intent.resourceType() : "Resource";
 
-        if (missingTime && missingCapacity) {
+        if (missingType && missingTime && missingCapacity) {
+            engagementPrompt = String.format("Found available resources for %s! What type of resource do you need (e.g., Lecture Hall, Lab, or GPU), or would you like to filter by time or capacity?", targetDate);
+            suggestedRefinements.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster", "10:00 - 12:00", "50+ seats"));
+        } else if (missingType && missingTime) {
+            engagementPrompt = String.format("Found resources with %d+ seats on %s. Would you like a Lecture Hall or a Lab, and at what time?", intent.minCapacity(), targetDate);
+            suggestedRefinements.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster", "10:00 - 12:00", "14:00 - 16:00"));
+        } else if (missingType && missingCapacity) {
+            engagementPrompt = String.format("Showing %s - %s slots on %s. What type of resource do you need — a Lecture Hall, a Lab, or GPU computing?", reqStart, reqEnd, targetDate);
+            suggestedRefinements.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster", "50+ seats", "100+ seats"));
+        } else if (missingType) {
+            engagementPrompt = "What type of resource are you looking for — Lecture Hall, Lab, or GPU Cluster?";
+            suggestedRefinements.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster"));
+        } else if (missingTime && missingCapacity) {
             engagementPrompt = String.format("Found available %ss for %s! Would you like to specify a preferred time slot or capacity?", displayType, targetDate);
             suggestedRefinements.addAll(List.of("10:00 - 12:00", "14:00 - 16:00", "50+ seats", "80+ seats", "100+ seats"));
         } else if (missingTime) {
