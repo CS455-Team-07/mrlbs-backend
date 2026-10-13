@@ -168,6 +168,14 @@ public class AiRecommendationService {
         try {
             return LocalTime.parse(trimmed.toUpperCase(Locale.ENGLISH), java.time.format.DateTimeFormatter.ofPattern("h a", Locale.ENGLISH));
         } catch (Exception ignored) {}
+        if (trimmed.matches("\\d{1,2}")) {
+            try {
+                int h = Integer.parseInt(trimmed);
+                if (h >= 0 && h <= 23) {
+                    return LocalTime.of(h, 0);
+                }
+            } catch (Exception ignored) {}
+        }
         return null;
     }
 
@@ -271,7 +279,13 @@ public class AiRecommendationService {
         // Time extraction
         LocalTime startTime = null;
         LocalTime endTime = null;
-        if (lower.contains("10 am to noon") || lower.contains("10:00 to 12:00") || lower.contains("10 to 12") || lower.contains("10:00 - 12:00")) {
+        Matcher timeRangeMatcher = Pattern.compile("(\\d{1,2}(?::\\d{2})?)\\s*(?:-|to)\\s*(\\d{1,2}(?::\\d{2})?)").matcher(lower);
+        if (timeRangeMatcher.find()) {
+            LocalTime parsedS = parseFlexibleTime(timeRangeMatcher.group(1));
+            LocalTime parsedE = parseFlexibleTime(timeRangeMatcher.group(2));
+            if (parsedS != null) startTime = parsedS;
+            if (parsedE != null) endTime = parsedE;
+        } else if (lower.contains("10 am to noon") || lower.contains("10:00 to 12:00") || lower.contains("10 to 12") || lower.contains("10:00 - 12:00")) {
             startTime = LocalTime.of(10, 0);
             endTime = LocalTime.of(12, 0);
         } else if (lower.contains("9 am to 11 am") || lower.contains("9 to 11") || lower.contains("9:00 - 11:00")) {
@@ -364,7 +378,7 @@ public class AiRecommendationService {
         }
 
         LocalDate targetDate = intent.date();
-        LocalTime reqStart = intent.startTime() != null ? intent.startTime() : LocalTime.of(10, 0);
+        LocalTime reqStart = intent.startTime() != null ? intent.startTime() : computeDefaultStartTime(targetDate, contextDate);
         LocalTime reqEnd = intent.endTime() != null ? intent.endTime() : reqStart.plusHours(2);
         if (!reqEnd.isAfter(reqStart)) {
             reqEnd = reqStart.plusHours(2);
@@ -428,13 +442,17 @@ public class AiRecommendationService {
         boolean missingTime = (intent.startTime() == null);
         boolean missingCapacity = (intent.minCapacity() == null);
         String displayType = intent.resourceType() != null ? intent.resourceType() : "Resource";
+        List<String> timeSlots = computeDynamicTimeSlots(targetDate, contextDate);
 
         if (missingType && missingTime && missingCapacity) {
             engagementPrompt = String.format("Found available resources for %s! What type of resource do you need (e.g., Lecture Hall, Lab, or GPU), or would you like to filter by time or capacity?", targetDate);
-            suggestedRefinements.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster", "10:00 - 12:00", "50+ seats"));
+            suggestedRefinements.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster"));
+            suggestedRefinements.addAll(timeSlots);
+            suggestedRefinements.add("50+ seats");
         } else if (missingType && missingTime) {
             engagementPrompt = String.format("Found resources with %d+ seats on %s. Would you like a Lecture Hall or a Lab, and at what time?", intent.minCapacity(), targetDate);
-            suggestedRefinements.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster", "10:00 - 12:00", "14:00 - 16:00"));
+            suggestedRefinements.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster"));
+            suggestedRefinements.addAll(timeSlots);
         } else if (missingType && missingCapacity) {
             engagementPrompt = String.format("Showing %s - %s slots on %s. What type of resource do you need — a Lecture Hall, a Lab, or GPU computing?", reqStart, reqEnd, targetDate);
             suggestedRefinements.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster", "50+ seats", "100+ seats"));
@@ -443,16 +461,58 @@ public class AiRecommendationService {
             suggestedRefinements.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster"));
         } else if (missingTime && missingCapacity) {
             engagementPrompt = String.format("Found available %ss for %s! Would you like to specify a preferred time slot or capacity?", displayType, targetDate);
-            suggestedRefinements.addAll(List.of("10:00 - 12:00", "14:00 - 16:00", "50+ seats", "80+ seats", "100+ seats"));
+            suggestedRefinements.addAll(timeSlots);
+            suggestedRefinements.addAll(List.of("50+ seats", "80+ seats", "100+ seats"));
         } else if (missingTime) {
             engagementPrompt = String.format("Found %s with capacity for %d+ seats. Would you like to select a specific time slot?", displayType, intent.minCapacity());
-            suggestedRefinements.addAll(List.of("10:00 - 12:00", "14:00 - 16:00", "16:00 - 18:00"));
+            suggestedRefinements.addAll(timeSlots);
         } else if (missingCapacity) {
             engagementPrompt = String.format("Showing %s timeslots on %s. Do you have an expected number of attendees or seats in mind?", displayType, targetDate);
             suggestedRefinements.addAll(List.of("50+ seats", "80+ seats", "100+ seats", "200+ seats"));
         }
 
         return AiRecommendationResponse.results(summary, engagementPrompt, suggestedRefinements, intent, top, alternatives);
+    }
+
+    private LocalTime computeDefaultStartTime(LocalDate targetDate, LocalDate contextDate) {
+        LocalDate refDate = (contextDate != null) ? contextDate : LocalDate.now();
+        if (targetDate.isEqual(refDate)) {
+            LocalTime now = LocalTime.now();
+            int nextHour = (now.getMinute() == 0 && now.getSecond() == 0) ? now.getHour() : now.getHour() + 1;
+            if (nextHour >= 22) {
+                return LocalTime.of(22, 0);
+            } else if (nextHour <= 8) {
+                return LocalTime.of(10, 0);
+            } else {
+                return LocalTime.of(nextHour, 0);
+            }
+        }
+        return LocalTime.of(10, 0);
+    }
+
+    private List<String> computeDynamicTimeSlots(LocalDate targetDate, LocalDate contextDate) {
+        LocalDate refDate = (contextDate != null) ? contextDate : LocalDate.now();
+        if (targetDate.isEqual(refDate)) {
+            LocalTime now = LocalTime.now();
+            int nextHour = (now.getMinute() == 0 && now.getSecond() == 0) ? now.getHour() : now.getHour() + 1;
+            if (nextHour >= 22) {
+                return List.of("22:00 - 23:59");
+            } else if (nextHour <= 8) {
+                return List.of("10:00 - 12:00", "14:00 - 16:00", "16:00 - 18:00");
+            } else {
+                List<String> slots = new ArrayList<>();
+                int s1 = nextHour;
+                int e1 = Math.min(23, s1 + 2);
+                slots.add(String.format("%02d:00 - %02d:00", s1, e1));
+                if (e1 < 23) {
+                    int s2 = e1;
+                    int e2 = Math.min(23, s2 + 2);
+                    slots.add(String.format("%02d:00 - %02d:00", s2, e2));
+                }
+                return slots;
+            }
+        }
+        return List.of("10:00 - 12:00", "14:00 - 16:00", "16:00 - 18:00");
     }
 
     private CandidateEvaluation evaluateResource(LabResource resource, ExtractedIntent intent,
