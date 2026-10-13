@@ -20,6 +20,12 @@ public class MemberService {
         this.creditAccountRepository = creditAccountRepository;
     }
 
+    @Transactional(readOnly = true)
+    public boolean isMemberRegistered(String rawEmail) {
+        if (rawEmail == null || rawEmail.isBlank()) return false;
+        return memberRepository.findByEmail(rawEmail.trim().toLowerCase()).isPresent();
+    }
+
     @Transactional
     public MemberResponse loginOrCreateMember(String rawEmail, String rawName) {
         if (rawEmail == null || rawEmail.isBlank()) {

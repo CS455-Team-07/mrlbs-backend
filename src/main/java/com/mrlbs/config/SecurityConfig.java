@@ -56,7 +56,10 @@ public class SecurityConfig {
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
                         // Demo identity-switcher and member-login endpoints
-                        .ignoringRequestMatchers("/api/demo/**", "/api/auth/member-login"))
+                        .ignoringRequestMatchers("/api/demo/**", "/api/auth/member-login",
+                                "/api/auth/login",
+                                "/api/auth/request-code", "/api/auth/verify-code",
+                                "/api/auth/logout", "/logout"))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
                                 "/oauth2/**",
@@ -65,7 +68,12 @@ public class SecurityConfig {
                                 "/api/health",
                                 "/actuator/health",
                                 "/api/auth/csrf",
+                                "/api/auth/login",
                                 "/api/auth/member-login",
+                                "/api/auth/request-code",
+                                "/api/auth/verify-code",
+                                "/api/auth/logout",
+                                "/logout",
                                 "/api/demo/**")
                         .permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/resources", "/api/resources/**")
