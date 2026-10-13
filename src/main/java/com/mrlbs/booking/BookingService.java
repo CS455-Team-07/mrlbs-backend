@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import com.mrlbs.member.MemberRepository;
+
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,25 +32,37 @@ public class BookingService {
     private final BookingPriceCalculator priceCalculator;
     private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
+    private final MemberRepository memberRepository;
+
     public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
                           CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator) {
-        this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, null);
+        this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, null, null);
+    }
+
+    public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
+                          CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator,
+                          MemberRepository memberRepository) {
+        this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, null, memberRepository);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
                           CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator,
                           @org.springframework.beans.factory.annotation.Autowired(required = false)
-                          org.springframework.transaction.PlatformTransactionManager transactionManager) {
+                          org.springframework.transaction.PlatformTransactionManager transactionManager,
+                          MemberRepository memberRepository) {
         this.bookingRepository = bookingRepository;
         this.resourceRepository = resourceRepository;
         this.creditAccountRepository = creditAccountRepository;
         this.priceCalculator = priceCalculator;
         this.transactionManager = transactionManager;
+        this.memberRepository = memberRepository;
     }
+
 
     @Transactional
     public Booking createDraft(String ownerEmail, BookingRequest request) {
+        UUID memberId = resolveMemberId(ownerEmail);
         validateIdentity(ownerEmail);
         validateTimeWindow(request);
         LabResource resource = getResource(request.resourceId());
@@ -56,7 +70,7 @@ public class BookingService {
         LocalDateTime end = request.endTime();
 
         validateDuration(resource, start, end);
-        validateQuota(ownerEmail, resource);
+        validateQuota(memberId, resource);
 
         List<Booking> overlapping = bookingRepository.findOverlappingConfirmed(resource.getId(), start, end);
         BookingConflictType conflict = detectConflict(resource, start, end, overlapping, null);
@@ -71,17 +85,19 @@ public class BookingService {
                 new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
 
         Booking draft = new Booking(ownerEmail, resource, start, end, BookingStatus.DRAFT, quote.totalCredits());
+        draft.setMemberId(memberId);
         return bookingRepository.save(draft);
     }
 
     @Transactional
     public Booking confirmDraft(String ownerEmail, UUID bookingId) {
+        UUID memberId = resolveMemberId(ownerEmail);
         validateIdentity(ownerEmail);
         Booking booking = bookingRepository.findById(bookingId).orElseThrow(() ->
                 new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
                         "Booking was not found."));
 
-        if (!booking.getOwnerEmail().equalsIgnoreCase(ownerEmail)) {
+        if (!isBookingOwner(booking, memberId, ownerEmail)) {
             throw new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
                     "Booking does not belong to the authenticated member.");
         }
@@ -96,7 +112,7 @@ public class BookingService {
 
         try {
             validateDuration(resource, start, end);
-            validateQuota(ownerEmail, resource);
+            validateQuota(memberId, resource);
 
             List<Booking> overlapping = bookingRepository.findOverlappingConfirmedForUpdate(resource.getId(), start, end);
             BookingConflictType conflict = detectConflict(resource, start, end, overlapping, booking);
@@ -150,12 +166,13 @@ public class BookingService {
 
     @Transactional
     public void deleteBooking(String ownerEmail, UUID bookingId) {
+        UUID memberId = resolveMemberId(ownerEmail);
         validateIdentity(ownerEmail);
         Booking booking = bookingRepository.findById(bookingId).orElse(null);
         if (booking == null) {
             return;
         }
-        if (!booking.getOwnerEmail().equalsIgnoreCase(ownerEmail)) {
+        if (!isBookingOwner(booking, memberId, ownerEmail)) {
             throw new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
                     "Booking does not belong to the authenticated member.");
         }
@@ -171,8 +188,13 @@ public class BookingService {
         bookingRepository.delete(booking);
     }
 
+
+
+    
+
     @Transactional
     public Booking submit(String ownerEmail, BookingRequest request) {
+        UUID memberId = resolveMemberId(ownerEmail);
         validateIdentity(ownerEmail);
         validateTimeWindow(request);
         LabResource resource = getResource(request.resourceId());
@@ -180,7 +202,7 @@ public class BookingService {
         LocalDateTime end = request.endTime();
 
         validateDuration(resource, start, end);
-        validateQuota(ownerEmail, resource);
+        validateQuota(memberId, resource);
 
         List<Booking> overlapping = bookingRepository.findOverlappingConfirmedForUpdate(resource.getId(), start, end);
         BookingConflictType conflict = detectConflict(resource, start, end, overlapping, null);
@@ -203,6 +225,7 @@ public class BookingService {
         Booking booking = new Booking(ownerEmail, resource, start, end,
                 conflict == BookingConflictType.EXACT_MATCH ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED,
                 quote.totalCredits());
+        booking.setMemberId(memberId);
         Booking saved = bookingRepository.save(booking);
         account.debit(quote.totalCredits());
         creditAccountRepository.save(account);
@@ -246,13 +269,13 @@ public class BookingService {
         }
     }
 
-    private void validateQuota(String ownerEmail, LabResource resource) {
+    private void validateQuota(UUID memberId, LabResource resource) {
         BookingRule rule = resource.getBookingRule();
         if (rule == null || rule.getMaxBookingsPerMember() == null || rule.getMaxBookingsPerMember() <= 0) {
             return;
         }
         long activeCount = bookingRepository.countActiveBookingsForMember(
-                ownerEmail, resource.getId(), List.of(BookingStatus.CONFIRMED, BookingStatus.PENDING, BookingStatus.PENDING_APPROVAL, BookingStatus.IN_PROGRESS));
+                memberId, resource.getId(), List.of(BookingStatus.CONFIRMED, BookingStatus.PENDING, BookingStatus.PENDING_APPROVAL, BookingStatus.IN_PROGRESS));
         if (activeCount >= rule.getMaxBookingsPerMember()) {
             throw new BookingRejectedException(BookingRejectionReason.QUOTA_EXCEEDED,
                     "Member has reached the quota of " + rule.getMaxBookingsPerMember() + " active bookings for this resource.");
@@ -341,6 +364,26 @@ public class BookingService {
 
     @Transactional(readOnly = true)
     public List<Booking> history(String ownerEmail) {
-        return bookingRepository.findByOwnerEmailOrderByStartTimeDesc(ownerEmail);
+        UUID memberId = resolveMemberId(ownerEmail);
+        return bookingRepository.findByMemberIdOrderByStartTimeDesc(memberId);
+    }
+    private UUID resolveMemberId(String email) {
+        if (email == null) {
+            return null;
+        }
+        if (memberRepository != null) {
+            var memberOpt = memberRepository.findByEmail(email);
+            if (memberOpt.isPresent()) {
+                return memberOpt.get().getId();
+            }
+        }
+        return UUID.nameUUIDFromBytes(email.getBytes());
+    }
+
+    private boolean isBookingOwner(Booking booking, UUID memberId, String ownerEmail) {
+        if (booking.getMemberId() != null && memberId != null) {
+            return booking.getMemberId().equals(memberId);
+        }
+        return booking.getOwnerEmail() != null && booking.getOwnerEmail().equalsIgnoreCase(ownerEmail);
     }
 }

@@ -10,3 +10,15 @@ spring:
       ddl-auto: update
   flyway:
     enabled: true
+# spring:
+#   datasource:
+#     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://ep-lucky-tree-b4cfygo2-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+#     username: ${SPRING_DATASOURCE_USERNAME:neondb_owner}
+#     password: ${SPRING_DATASOURCE_PASSWORD:npg_Jj8XiqerCWz5}
+#     driver-class-name: org.postgresql.Driver
+#   jpa:
+#     database-platform: org.hibernate.dialect.PostgreSQLDialect
+#     hibernate:
+#       ddl-auto: update
+#   flyway:
+#     enabled: true

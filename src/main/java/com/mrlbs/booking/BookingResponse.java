@@ -5,7 +5,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 public record BookingResponse(UUID id, UUID resourceId, String resourceName, LocalDateTime startTime, LocalDateTime endTime,
-                              BookingStatus status, BigDecimal creditCost, Boolean clashes) {
+                              BookingStatus status, BigDecimal creditCost, Boolean clashes, UUID memberId) {
     public static BookingResponse from(Booking booking) {
         return from(booking, false);
     }
@@ -18,6 +18,7 @@ public record BookingResponse(UUID id, UUID resourceId, String resourceName, Loc
                 booking.getEndTime(),
                 booking.getStatus(),
                 booking.getCreditCost(),
-                clashes);
+                clashes,
+                booking.getMemberId());
     }
 }

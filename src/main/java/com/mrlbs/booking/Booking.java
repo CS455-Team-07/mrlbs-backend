@@ -12,6 +12,10 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.PrePersist;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.persistence.Transient;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -24,7 +28,13 @@ public class Booking {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "owner_email", nullable = false, length = 320)
+    @Column(name = "member_id", nullable = false)
+    private UUID memberId;
+
+    public UUID getMemberId() { return memberId; }
+    public void setMemberId(UUID memberId) { this.memberId = memberId; }
+
+    @Transient
     private String ownerEmail;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -44,6 +54,12 @@ public class Booking {
     @Column(name = "credit_cost", nullable = false, precision = 12, scale = 0)
     private BigDecimal creditCost;
 
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "cancelled_at")
+    private LocalDateTime cancelledAt;
+
     protected Booking() {
     }
 
@@ -59,6 +75,7 @@ public class Booking {
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
+    @JsonProperty("ownerEmail")
     public String getOwnerEmail() { return ownerEmail; }
     public LabResource getResource() { return resource; }
     public LocalDateTime getStartTime() { return startTime; }
@@ -69,4 +86,18 @@ public class Booking {
     public void setEndTime(LocalDateTime endTime) { this.endTime = endTime; }
     public void setStatus(BookingStatus status) { this.status = status; }
     public void setCreditCost(BigDecimal creditCost) { this.creditCost = creditCost; }
+
+    public LocalDateTime getCreatedAt() { return createdAt; }
+
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public LocalDateTime getCancelledAt() { return cancelledAt; }
+
+    public void setCancelledAt(LocalDateTime cancelledAt) { this.cancelledAt = cancelledAt; }
+
+    @PrePersist
+    private void onCreate() {
+        this.createdAt = LocalDateTime.now();
+    }
 }
+
