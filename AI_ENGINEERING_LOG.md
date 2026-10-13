@@ -308,3 +308,32 @@ Admin resource onboarding (`POST /api/resources`) succeeds from the frontend for
 **Decision:** Pending human review.
 
 **Reason:** Bug fix — no functional change to the resource creation logic; only the session-cookie identity resolution for the demo auth mode was corrected.
+
+# 2026-10-13 — Complete BOOK-84 approval-required booking lifecycle
+
+**Date:** 2026-10-13
+
+**Task / Context:**
+Created `feature/BOOK-84-approval-lifecycle` from the fetched `origin/main` and addressed the BOOK-84 acceptance criteria. Resource booking rules already stored `APPROVAL_REQUIRED`, but booking submission ignored that policy.
+
+**Prompt:**
+The user asked whether the BOOK-84 implementation was correct, then requested a new branch from main and a fix. The supplied requirement says approval-required bookings must enter `PENDING_APPROVAL`, remain persisted for review, be available to the Admin/AI approval workflow, and have auditable transitions.
+
+**AI Output / Response:**
+The implementation plan and code changes add the pending-review lifecycle, an admin pending queue and decisions, and durable status history. Existing system code has no AI approval decision workflow; this change exposes pending items to admins rather than inventing automated AI decisions.
+
+**Student / Team Evaluation:**
+Pending human review.
+
+**Errors / Risks / Hallucinations:**
+The first live API run found a lazy-loading failure in the admin resource-scope check; the lookup now fetches the resource. The complete backend suite passes (50 tests). Live local testing confirmed pending submission, admin queue visibility, UI approval, audit history, API rejection, and credit refund. Automated AI decisions and email notifications are not implemented by this change. The audit table intentionally stores booking IDs without a foreign key so events can survive deletion of a booking row.
+
+**Changes Made After Evaluating the AI Output:**
+No human edits have been recorded yet. Added policy-aware `PENDING_APPROVAL` status assignment in direct submission and draft confirmation; protected admin list/approve/reject endpoints with resource-type scoping; refunded reserved credits on rejection; retained submitted bookings as cancelled when members delete them; and added persistent status event storage plus a migration.
+
+**Final Accepted Artifact or Output:**
+Pending review: backend branch `feature/BOOK-84-approval-lifecycle`.
+
+**Decision:** Pending human review.
+
+**Reason:** Backend tests and the local browser/API flow pass. The team should review whether email notification or automated AI approval is also required.

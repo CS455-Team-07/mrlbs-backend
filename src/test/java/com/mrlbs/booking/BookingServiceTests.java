@@ -31,6 +31,7 @@ class BookingServiceTests {
     @Mock BookingRepository bookingRepository;
     @Mock LabResourceRepository resourceRepository;
     @Mock CreditAccountRepository creditAccountRepository;
+    @Mock BookingStatusEventRepository statusEventRepository;
     private BookingService service;
     private LabResource resource;
     private UUID resourceId;
@@ -38,7 +39,7 @@ class BookingServiceTests {
     @BeforeEach
     void setUp() {
         service = new BookingService(bookingRepository, resourceRepository,
-                creditAccountRepository, new BookingPriceCalculator());
+                creditAccountRepository, new BookingPriceCalculator(), null, statusEventRepository);
         resource = mock(LabResource.class);
         resourceId = UUID.randomUUID();
         lenient().when(resource.getId()).thenReturn(resourceId);
@@ -104,6 +105,78 @@ class BookingServiceTests {
         verify(bookingRepository).save(captor.capture());
         assertEquals("member@iitk.ac.in", captor.getValue().getOwnerEmail());
         verify(creditAccountRepository).save(account);
+    }
+
+    @Test
+    void approvalRequiredSubmissionPersistsPendingStatusAndAuditEvent() {
+        var rule = new com.mrlbs.resource.BookingRule();
+        rule.setBookingPolicy(com.mrlbs.resource.BookingPolicy.APPROVAL_REQUIRED);
+        when(resource.getBookingRule()).thenReturn(rule);
+        when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> {
+            Booking booking = invocation.getArgument(0);
+            booking.setId(UUID.randomUUID());
+            return booking;
+        });
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("10"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+        var start = LocalDateTime.now().plusDays(1);
+
+        Booking result = service.submit("member@iitk.ac.in",
+                new BookingRequest(resourceId, start, start.plusHours(1)));
+
+        assertEquals(BookingStatus.PENDING_APPROVAL, result.getStatus());
+        assertEquals(new BigDecimal("6"), account.getBalance());
+        verify(statusEventRepository).save(org.mockito.ArgumentMatchers.argThat(event ->
+                event.getBookingId().equals(result.getId()) && event.getFromStatus() == null
+                        && event.getToStatus() == BookingStatus.PENDING_APPROVAL
+                        && event.getActorEmail().equals("member@iitk.ac.in")));
+    }
+
+    @Test
+    void approvalRequiredDraftConfirmationWaitsForReview() {
+        var rule = new com.mrlbs.resource.BookingRule();
+        rule.setBookingPolicy(com.mrlbs.resource.BookingPolicy.APPROVAL_REQUIRED);
+        when(resource.getBookingRule()).thenReturn(rule);
+        UUID draftId = UUID.randomUUID();
+        var start = LocalDateTime.now().plusDays(1);
+        Booking draft = new Booking("member@iitk.ac.in", resource, start, start.plusHours(1),
+                BookingStatus.DRAFT, new BigDecimal("4"));
+        draft.setId(draftId);
+        when(bookingRepository.findById(draftId)).thenReturn(Optional.of(draft));
+        when(bookingRepository.findOverlappingConfirmedForUpdate(any(), any(), any())).thenReturn(java.util.List.of());
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in"))
+                .thenReturn(Optional.of(new CreditAccount("member@iitk.ac.in", new BigDecimal("10"))));
+
+        Booking pending = service.confirmDraft("member@iitk.ac.in", draftId);
+
+        assertEquals(BookingStatus.PENDING_APPROVAL, pending.getStatus());
+        verify(statusEventRepository).save(org.mockito.ArgumentMatchers.argThat(event ->
+                event.getFromStatus() == BookingStatus.DRAFT
+                        && event.getToStatus() == BookingStatus.PENDING_APPROVAL));
+    }
+
+    @Test
+    void rejectingPendingApprovalRefundsCreditsAndAuditsReviewerDecision() {
+        UUID bookingId = UUID.randomUUID();
+        Booking pending = new Booking("member@iitk.ac.in", resource, LocalDateTime.now().plusDays(1),
+                LocalDateTime.now().plusDays(1).plusHours(1), BookingStatus.PENDING_APPROVAL, new BigDecimal("4"));
+        pending.setId(bookingId);
+        when(bookingRepository.findByIdForUpdate(bookingId)).thenReturn(Optional.of(pending));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("6"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+
+        Booking rejected = service.reject(bookingId, "admin@iitk.ac.in", "Safety requirements not met");
+
+        assertEquals(BookingStatus.REJECTED, rejected.getStatus());
+        assertEquals(new BigDecimal("10"), account.getBalance());
+        verify(statusEventRepository).save(org.mockito.ArgumentMatchers.argThat(event ->
+                event.getFromStatus() == BookingStatus.PENDING_APPROVAL
+                        && event.getToStatus() == BookingStatus.REJECTED
+                        && event.getActorEmail().equals("admin@iitk.ac.in")
+                        && event.getNote().equals("Safety requirements not met")));
     }
 
     @Test

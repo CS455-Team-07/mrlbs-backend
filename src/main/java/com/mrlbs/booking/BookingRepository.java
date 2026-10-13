@@ -13,6 +13,15 @@ import java.util.Optional;
 
 public interface BookingRepository extends JpaRepository<Booking, UUID> {
     List<Booking> findByOwnerEmailOrderByStartTimeDesc(String ownerEmail);
+    @Query("SELECT b FROM Booking b JOIN FETCH b.resource WHERE b.status = :status ORDER BY b.startTime ASC")
+    List<Booking> findByStatusOrderByStartTimeAsc(@Param("status") BookingStatus status);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT b FROM Booking b JOIN FETCH b.resource WHERE b.id = :id")
+    Optional<Booking> findByIdForUpdate(@Param("id") UUID id);
+
+    @Query("SELECT b FROM Booking b JOIN FETCH b.resource WHERE b.id = :id")
+    Optional<Booking> findWithResourceById(@Param("id") UUID id);
 
     List<Booking> findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
             UUID resourceId, BookingStatus status, LocalDateTime before, LocalDateTime after);
