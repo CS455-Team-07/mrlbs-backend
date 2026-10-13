@@ -35,17 +35,21 @@ public class AuthController {
             HttpServletResponse response) {
         MemberResponse member = memberService.loginOrCreateMember(request.email(), request.name());
 
-        Cookie adminCookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, member.email());
-        adminCookie.setPath("/");
-        adminCookie.setMaxAge(86400 * 7);
-        adminCookie.setHttpOnly(false);
-        response.addCookie(adminCookie);
-
+        // Only set the member cookie — never write DEMO_ADMIN_EMAIL with a member
+        // address, as that would give ROLE_MEMBER to any subsequent admin request
+        // that the DemoAuthenticationFilter processes before the admin cookie.
         Cookie memberCookie = new Cookie(DemoAuthenticationFilter.MEMBER_COOKIE_NAME, member.email());
         memberCookie.setPath("/");
         memberCookie.setMaxAge(86400 * 7);
         memberCookie.setHttpOnly(false);
         response.addCookie(memberCookie);
+
+        // Explicitly clear any stale admin-identity cookie so a previous admin
+        // session does not bleed into this member session.
+        Cookie clearAdminCookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, "");
+        clearAdminCookie.setPath("/");
+        clearAdminCookie.setMaxAge(0);
+        response.addCookie(clearAdminCookie);
 
         return ResponseEntity.ok(member);
     }
