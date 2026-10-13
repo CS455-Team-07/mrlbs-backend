@@ -270,3 +270,63 @@ add these admins to the member table in the database , mention role as ADMIN"
 
 **Reason:** Enables full parity between resource creation and resource configuration duration settings.
 
+#### 2026-10-13 — Restore IITK Google OIDC authentication
+
+**Task and context:** The user asked to rebase both repositories' work on the latest `main`, create an `authentication` branch in each, find a workable authentication path for IITK accounts, and not push until authentication had been tested.
+
+**Prompt:** "pull the latest versions of main for both frontend and backend and create a new branch on authentication and we need to find an alternative to make authentication work and also dont push until you have tested that authentication works and keep in mind that the accounts are .iitk.ac.in accounts and plan accordingly"
+
+**AI output or response:** Restored Google OAuth 2.0 / OIDC as the default authentication flow, retained `iitk.ac.in` as the configured institution, and reviewed Google's guidance for hosted-domain validation.
+
+**Student/team evaluation:** Pending. Backend suite: 39 tests passed. Frontend production build passed. Full frontend suite: 27 passed and 7 existing `MemberDashboard` tests failed because their expected resource-selection controls do not match the current UI. The live OAuth authorization redirect reaches Google's sign-in page with `hd=iitk.ac.in`, `prompt=select_account`, and the localhost callback URI. The actual account callback remains pending user sign-in.
+
+**Errors, risks, or hallucinations identified:** Google states that an email suffix alone does not establish Google Workspace organization membership; therefore the signed `hd` claim remains mandatory, with verified `@iitk.ac.in` email checked as an additional condition. A real account sign-in is still needed to confirm the configured Google client and IITK Workspace account complete the callback.
+
+**Changes made after evaluating the AI output:** Enabled backend OIDC by default, restored the frontend Google sign-in flow, assigned backend OIDC roles from the verified institutional admin allowlist, required verified matching domain claims, and prevented typed-email member login from bypassing the authenticated principal.
+
+**Final accepted artifact or output:** Local implementation on the `authentication` branch; no commits have been pushed. Final acceptance awaits a successful IITK account callback.
+
+**Decision:** Modified.
+
+**Reason:** OIDC provides a verifiable institution-owned identity and supports the supplied IITK Google Workspace accounts while preserving the domain restriction.
+
+#### 2026-10-13 — Switch institutional OIDC to Microsoft Entra
+
+**Task and context:** The user confirmed their `@iitk.ac.in` account signs in to Microsoft 365 but Google reports that the account cannot be found. They requested an alternative institutional authentication flow and asked that nothing be pushed before a successful real sign-in.
+
+**AI output or response:** Replaced Google OAuth configuration with Microsoft Entra OIDC for IITK. The provider is tenant-specific; the backend verifies the signed issuer and `tid` claims against the configured IITK tenant ID and also requires an `@iitk.ac.in` address from signed ID-token claims. Microsoft `preferred_username` and `upn` are supported when an `email` claim is absent. The frontend now starts Microsoft sign-in and displays Microsoft-specific callback messages.
+
+**Student/team evaluation:** Backend test suite passed (42 tests). Focused auth frontend tests passed (8 tests), and the production build passed. A local backend smoke check returned the Microsoft authorize endpoint for the IITK tenant with the `microsoft` callback URI and `prompt=select_account`. End-to-end authentication remains untested because a Microsoft Entra app registration and its client ID/secret have not yet been configured locally.
+
+**Errors, risks, or hallucinations identified:** Domain suffix alone is not accepted: the token issuer and tenant must also match. Microsoft documents `tid` as the organizational tenant ID and provides tenant-specific OIDC configuration. A real identity-provider callback is still required before this implementation can be accepted as working.
+
+**Changes made after evaluating the AI output:** Changed the backend OIDC registration, tenant/domain validator, normalized institutional email handling, login resolver, test fixtures, frontend link and messages, and both READMEs. No commits or pushes were made.
+
+**Final accepted artifact or output:** Local implementation on the `authentication` branch; live sign-in awaits the IITK tenant's Entra app registration values.
+
+**Decision:** Pending real sign-in.
+
+**Reason:** The user's Microsoft 365 identity is available, while Google does not recognize their address as a Google Account.
+
+
+#### 2026-10-13 — Replace OAuth sign-in with IITK mailbox verification
+
+**Task and context:** The user said Microsoft sign-in is blocked by tenant admin approval and agreed that email delivery is a better workaround.
+
+**Prompt:** "yeah the mail sending thing is better"
+
+**AI output or response:** Replaced the OAuth sign-in path with a short-lived one-time code sent to an institutional email address. The server accepts only the configured `iitk.ac.in` domain, binds the code to the exact email and server session, permits five attempts, consumes a successful code, rotates the session ID, and establishes a Spring Security session. Added SMTP configuration through environment variables.
+
+**Student/team evaluation:** Pending user review and real SMTP delivery. Backend automated tests and frontend auth tests/build are being run locally; no email-provider credentials have been added and no real mailbox code has been sent.
+
+**Errors, risks, or hallucinations identified:** Mailbox verification confirms access to an `@iitk.ac.in` inbox; it does not meet the original Google OAuth/OIDC mechanism or prove institutional tenancy through signed identity-provider claims. Per-address send throttling is process-local, so multi-instance deployment needs a shared rate limiter. A real SMTP relay and sender identity must be configured before end-to-end authentication can be confirmed.
+
+**Changes made after evaluating the AI output:** Removed Microsoft authorization from the security flow, added email-code request/verification endpoints and SMTP delivery, made authenticated API controllers accept the verified session principal, changed the frontend login form and tests, and made app reloads validate the backend session rather than trusting a local profile cache.
+
+**Final accepted artifact or output:** Local implementation on the existing `authentication` branch. No commits or pushes were made. SMTP end-to-end testing remains pending configuration.
+
+**Decision:** Modified.
+
+**Reason:** User approved email delivery as a practical alternative because their institutional Microsoft app requires admin approval they cannot obtain.
+
+**Verification update:** Final backend run completed successfully with 39 tests and no failures after obsolete OIDC tests were removed. Focused frontend authentication/navigation tests pass (6 tests) and the production build passes. The full frontend suite reports 25 passing and 7 failing tests, all in the existing MemberDashboard.test.tsx expectations (including missing “View availability” UI and outdated booking text). Real SMTP delivery remains untested because the workspace env has no SMTP settings.

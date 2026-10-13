@@ -41,10 +41,19 @@ if (Test-Path $envFile) {
     Write-Host "[!] Warning: postgres.local.env not found. Using defaults in application-postgres.yml" -ForegroundColor Yellow
 }
 
-# 3. Ensure target JAR exists; compile if missing
+# 3. Ensure target JAR exists and is newer than the application sources
 $jarPath = Join-Path $scriptDir "target\mrlbs-backend-0.0.1-SNAPSHOT.jar"
-if (-not (Test-Path $jarPath)) {
-    Write-Host "[*] Target JAR not found. Building with Maven..." -ForegroundColor Cyan
+$buildRequired = -not (Test-Path $jarPath)
+if (-not $buildRequired) {
+    $jarTimestamp = (Get-Item $jarPath).LastWriteTimeUtc
+    $latestInput = Get-ChildItem -Path (Join-Path $scriptDir "src"), (Join-Path $scriptDir "pom.xml") -Recurse -File |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    $buildRequired = $latestInput -and $latestInput.LastWriteTimeUtc -gt $jarTimestamp
+}
+
+if ($buildRequired) {
+    Write-Host "[*] Target JAR is missing or older than the application sources. Building with Maven..." -ForegroundColor Cyan
     & ".\mvnw.cmd" package -DskipTests
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[-] Build failed." -ForegroundColor Red

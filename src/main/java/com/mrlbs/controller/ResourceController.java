@@ -13,7 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -32,10 +32,10 @@ public class ResourceController {
     /** Returns active resources, filtered to the caller's scope when they are a scoped admin. */
     @GetMapping
     public ResponseEntity<List<LabResource>> getAllResources(
-            @AuthenticationPrincipal OidcUser user) {
+            @AuthenticationPrincipal OAuth2User user) {
         List<LabResource> all = resourceService.getAllResources();
         if (user != null) {
-            String email = user.getEmail();
+            String email = user.getAttribute("email");
             return AdminResourceScope.scopeForEmail(email)
                     .map(scope -> ResponseEntity.ok(
                             all.stream().filter(r -> scope.equalsIgnoreCase(r.getType())).toList()))
@@ -46,10 +46,10 @@ public class ResourceController {
 
     @GetMapping("/inactive")
     public ResponseEntity<List<LabResource>> getInactiveResources(
-            @AuthenticationPrincipal OidcUser user) {
+            @AuthenticationPrincipal OAuth2User user) {
         List<LabResource> all = resourceService.getInactiveResources();
         if (user != null) {
-            String email = user.getEmail();
+            String email = user.getAttribute("email");
             return AdminResourceScope.scopeForEmail(email)
                     .map(scope -> ResponseEntity.ok(
                             all.stream().filter(r -> scope.equalsIgnoreCase(r.getType())).toList()))
@@ -68,7 +68,7 @@ public class ResourceController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResourceResponse create(
             @Valid @RequestBody ResourceRequest request,
-            @AuthenticationPrincipal OidcUser user) {
+            @AuthenticationPrincipal OAuth2User user) {
         validateScopeForType(user, request.type());
         return ResourceResponse.from(resourceService.create(request));
     }
@@ -78,7 +78,7 @@ public class ResourceController {
     public ResponseEntity<LabResource> updateResource(
             @PathVariable UUID resourceId,
             @RequestBody ResourceUpdateRequest request,
-            @AuthenticationPrincipal OidcUser user) {
+            @AuthenticationPrincipal OAuth2User user) {
         LabResource existing = resourceService.getResource(resourceId);
         validateScopeForType(user, existing.getType());
         return ResponseEntity.ok(resourceService.updateResource(resourceId, request));
@@ -88,7 +88,7 @@ public class ResourceController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> restoreResource(
             @PathVariable UUID resourceId,
-            @AuthenticationPrincipal OidcUser user) {
+            @AuthenticationPrincipal OAuth2User user) {
         // For inactive resources we must look them up differently
         LabResource existing = resourceService.getResourceIncludingInactive(resourceId);
         validateScopeForType(user, existing.getType());
@@ -100,7 +100,7 @@ public class ResourceController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteResource(
             @PathVariable UUID resourceId,
-            @AuthenticationPrincipal OidcUser user) {
+            @AuthenticationPrincipal OAuth2User user) {
         LabResource existing = resourceService.getResource(resourceId);
         validateScopeForType(user, existing.getType());
         resourceService.deactivateResource(resourceId);
@@ -114,9 +114,9 @@ public class ResourceController {
      * scoped admin who does not own {@code resourceType}.  Super-admins (no
      * scope) pass through unchecked.
      */
-    private void validateScopeForType(OidcUser user, String resourceType) {
+    private void validateScopeForType(OAuth2User user, String resourceType) {
         if (user == null) return;
-        AdminResourceScope.scopeForEmail(user.getEmail()).ifPresent(scope -> {
+        AdminResourceScope.scopeForEmail(user.getAttribute("email")).ifPresent(scope -> {
             if (!scope.equalsIgnoreCase(resourceType)) {
                 throw new AccessDeniedException(
                         "You are only authorised to manage resources of type: " + scope);

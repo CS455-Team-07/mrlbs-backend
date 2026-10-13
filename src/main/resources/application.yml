@@ -11,18 +11,6 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: none
-  security:
-    oauth2:
-      client:
-        registration:
-          google:
-            client-id: ${GOOGLE_CLIENT_ID:local-auth-disabled}
-            client-secret: ${GOOGLE_CLIENT_SECRET:local-auth-disabled}
-            scope:
-              - openid
-              - profile
-              - email
-            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
 
 management:
   endpoints:
@@ -32,9 +20,9 @@ management:
 
 mrlbs:
   auth:
-    enabled: ${AUTH_ENABLED:false}
+    enabled: ${AUTH_ENABLED:true}
     institutional-domain: ${INSTITUTIONAL_DOMAIN:iitk.ac.in}
-    dev-allow-any-google-domain: ${DEV_ALLOW_ANY_GOOGLE_DOMAIN:false}
-    frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:5173}
+  mail:
+    from: ${MAIL_FROM:}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
