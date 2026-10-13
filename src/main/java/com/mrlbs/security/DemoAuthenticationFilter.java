@@ -43,6 +43,13 @@ public class DemoAuthenticationFilter extends OncePerRequestFilter {
             FilterChain filterChain) throws ServletException, IOException {
 
         String email = resolveEmail(request);
+
+        // No demo cookie present → let the request pass through unauthenticated
+        if (email.isEmpty()) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         boolean isScopedAdmin = AdminResourceScope.isScopedAdmin(email);
         List<SimpleGrantedAuthority> authorities = isScopedAdmin ? ADMIN_AUTHORITIES : MEMBER_AUTHORITIES;
         String name = resolveName(email, isScopedAdmin);
