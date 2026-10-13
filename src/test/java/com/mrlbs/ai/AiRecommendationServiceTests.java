@@ -108,6 +108,27 @@ class AiRecommendationServiceTests {
     }
 
     @Test
+    void getRecommendations_todayWithoutTime_usesUpcomingSlotAndDynamicChips() {
+        LocalDate today = LocalDate.now();
+        when(geminiClient.isConfigured()).thenReturn(false);
+
+        UUID l1Id = UUID.randomUUID();
+        LabResource l1 = createResource(l1Id, "L1", "Lecture Hall", "Complex", 100, BookingPolicy.FCFS);
+
+        when(resourceRepository.findByActiveTrue()).thenReturn(List.of(l1));
+        when(bookingRepository.findBookedResourceIdsInSlot(any(), any())).thenReturn(List.of());
+
+        AiPromptRequest request = new AiPromptRequest("Today Lecture Hall", today.toString());
+        AiRecommendationResponse response = service.getRecommendations(request);
+
+        assertTrue(response.success());
+        assertNotNull(response.topRecommendation());
+        assertEquals("L1", response.topRecommendation().name());
+        assertNotNull(response.suggestedRefinements());
+        assertFalse(response.suggestedRefinements().isEmpty());
+    }
+
+    @Test
     void getRecommendations_slotConflict_recommendsAlternativeTime() {
         LocalDate today = LocalDate.of(2026, 10, 14);
         when(geminiClient.isConfigured()).thenReturn(false);
