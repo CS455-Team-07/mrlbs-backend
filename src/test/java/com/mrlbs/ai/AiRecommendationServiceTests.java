@@ -83,10 +83,10 @@ class AiRecommendationServiceTests {
         when(geminiClient.isConfigured()).thenReturn(false);
 
         UUID l1Id = UUID.randomUUID();
-        LabResource l1 = createResource(l1Id, "L1", "Lecture Hall", "Complex", 100, BookingPolicy.OPEN);
+        LabResource l1 = createResource(l1Id, "L1", "Lecture Hall", "Complex", 100, BookingPolicy.FCFS);
 
         UUID l2Id = UUID.randomUUID();
-        LabResource l2 = createResource(l2Id, "L2", "Lecture Hall", "Complex", 50, BookingPolicy.OPEN);
+        LabResource l2 = createResource(l2Id, "L2", "Lecture Hall", "Complex", 50, BookingPolicy.FCFS);
 
         when(resourceRepository.findByActiveTrue()).thenReturn(List.of(l1, l2));
         when(bookingRepository.findBookedResourceIdsInSlot(any(), any())).thenReturn(List.of());
@@ -113,7 +113,7 @@ class AiRecommendationServiceTests {
         when(geminiClient.isConfigured()).thenReturn(false);
 
         UUID l1Id = UUID.randomUUID();
-        LabResource l1 = createResource(l1Id, "L1", "Lecture Hall", "Complex", 100, BookingPolicy.OPEN);
+        LabResource l1 = createResource(l1Id, "L1", "Lecture Hall", "Complex", 100, BookingPolicy.FCFS);
 
         when(resourceRepository.findByActiveTrue()).thenReturn(List.of(l1));
         when(bookingRepository.findBookedResourceIdsInSlot(any(), any())).thenReturn(List.of(l1Id));
