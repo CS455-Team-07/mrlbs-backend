@@ -55,9 +55,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
-                        // Demo identity-switcher and member-login endpoints are not auth-protected;
-                        // exempt them from CSRF so the login page can POST without
-                        // a prior session cookie.
+                        // Demo identity-switcher and member-login endpoints
                         .ignoringRequestMatchers("/api/demo/**", "/api/auth/member-login"))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(

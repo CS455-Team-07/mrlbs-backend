@@ -298,3 +298,41 @@ add these admins to the member table in the database , mention role as ADMIN"
 
 **Reason:** Enables full parity between resource creation and resource configuration duration settings.
 
+---
+
+#### 2026-10-13 — Fix admin resource onboarding blocked by demo cookie conflict (403 Forbidden)
+
+**Task / Context:**\
+Admin users (e.g. `lhc@iitk.ac.in`) were getting `"Only an Admin can onboard a resource."` (HTTP 403) when submitting the Resource Onboarding Form, even after successfully logging in via the Admin Login flow. The backend `POST /api/resources` is guarded by `@PreAuthorize("hasRole('ADMIN')")`.
+
+**Prompt:**\
+"why i am unable to book a resource, why am i getting like this, dont change any code just give me reason" (diagnosis request); followed by "to onboard a resource only, i am currently in lhc admin but couldnot onboard a resource, make changes such that resource onboarding by admins happens successfully."
+
+**AI Output:**\
+Identified three interlocking bugs causing the 403:
+
+1. `AuthController.memberLogin` set `DEMO_ADMIN_EMAIL` cookie with the **member's** email in addition to `DEMO_MEMBER_EMAIL`. Any subsequent admin login via `/api/demo/switch` would set `DEMO_ADMIN_EMAIL=lhc@iitk.ac.in`, but the old member cookie was still alive. Depending on browser cookie order, the member email was read first by `DemoAuthenticationFilter`, granting `ROLE_MEMBER` instead of `ROLE_ADMIN`.
+2. `DemoAuthenticationFilter.resolveEmail` used a flat `.findFirst()` across all three cookie names (`DEMO_ADMIN_EMAIL`, `DEMO_MEMBER_EMAIL`, `DEMO_USER_EMAIL`). Cookie delivery order is browser-dependent, so the member cookie could win.
+3. `AuthContext.logout()` only cleared `DEMO_ADMIN_EMAIL`, leaving `DEMO_MEMBER_EMAIL` alive across logouts, and `LoginPage.handleAdminLogin` did not clear `DEMO_MEMBER_EMAIL` before switching the admin identity.
+
+**Fixes applied:**
+- `AuthController.java`: removed the `DEMO_ADMIN_EMAIL` write from `memberLogin`; added an explicit max-age=0 cookie to clear any stale admin cookie on member login.
+- `DemoAuthenticationFilter.java`: rewrote `resolveEmail` to check `DEMO_ADMIN_EMAIL` in a dedicated first pass; only falls back to `DEMO_MEMBER_EMAIL` / `DEMO_USER_EMAIL` if no admin cookie is present.
+- `AuthContext.tsx`: `logout()` now clears both `DEMO_ADMIN_EMAIL` and `DEMO_MEMBER_EMAIL`.
+- `LoginPage.tsx`: `handleAdminLogin` clears `DEMO_MEMBER_EMAIL` before calling `/api/demo/switch`.
+
+**Student/Team Evaluation:**\
+Pending human review.
+
+**Errors, risks, or hallucinations identified:**\
+No hallucinations identified. The priority-based cookie resolution is a targeted fix; it does not affect production paths where `mrlbs.auth.enabled=true` (the `DemoAuthenticationFilter` is not registered in that mode).
+
+**Changes made after evaluating the AI output:**\
+`AuthController.java`, `DemoAuthenticationFilter.java`, `AuthContext.tsx`, `LoginPage.tsx`. All 4 `ResourceControllerTests` pass after the backend change (verified with `./mvnw.cmd test -Dtest=ResourceControllerTests`).
+
+**Final accepted artifact or output:**\
+Admin resource onboarding (`POST /api/resources`) succeeds from the frontend form when logged in as an LHC, GPU, or KD Lab admin.
+
+**Decision:** Pending human review.
+
+**Reason:** Bug fix — no functional change to the resource creation logic; only the session-cookie identity resolution for the demo auth mode was corrected.

@@ -74,9 +74,17 @@ public class DemoAuthenticationFilter extends OncePerRequestFilter {
 
     private static String resolveEmail(HttpServletRequest request) {
         if (request.getCookies() == null) return "";
+        // Strictly prefer the admin-identity cookie so that a DEMO_MEMBER_EMAIL
+        // cookie from a previous session cannot shadow a freshly issued admin identity.
+        java.util.Optional<String> adminEmail = Arrays.stream(request.getCookies())
+                .filter(c -> COOKIE_NAME.equals(c.getName()))
+                .map(Cookie::getValue)
+                .filter(v -> v != null && !v.isBlank())
+                .findFirst();
+        if (adminEmail.isPresent()) return adminEmail.get();
+
         return Arrays.stream(request.getCookies())
-                .filter(c -> COOKIE_NAME.equals(c.getName())
-                          || MEMBER_COOKIE_NAME.equals(c.getName())
+                .filter(c -> MEMBER_COOKIE_NAME.equals(c.getName())
                           || "DEMO_USER_EMAIL".equals(c.getName()))
                 .map(Cookie::getValue)
                 .filter(v -> v != null && !v.isBlank())
