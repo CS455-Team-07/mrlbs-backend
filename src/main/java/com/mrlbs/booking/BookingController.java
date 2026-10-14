@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -20,16 +21,36 @@ import java.util.UUID;
 @RequestMapping("/api/bookings")
 public class BookingController {
     private final BookingService bookingService;
+    private final com.mrlbs.waitlist.WaitlistService waitlistService;
+    private final com.mrlbs.waitlist.WaitlistEntryRepository waitlistEntryRepository;
     private final com.mrlbs.ai.review.BookingAiReviewRepository reviewRepository;
 
-    public BookingController(BookingService bookingService) {
-        this(bookingService, null);
+   public BookingController(BookingService bookingService) {
+        this(bookingService, null, null, null);
+    }
+
+    public BookingController(BookingService bookingService,
+                             com.mrlbs.ai.review.BookingAiReviewRepository reviewRepository) {
+        this(bookingService, null, null, reviewRepository);
+    }
+
+    public BookingController(BookingService bookingService,
+                             com.mrlbs.waitlist.WaitlistService waitlistService,
+                             com.mrlbs.waitlist.WaitlistEntryRepository waitlistEntryRepository) {
+        this(bookingService, waitlistService, waitlistEntryRepository, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public BookingController(BookingService bookingService,
-                             @org.springframework.beans.factory.annotation.Autowired(required = false) com.mrlbs.ai.review.BookingAiReviewRepository reviewRepository) {
+                             @org.springframework.beans.factory.annotation.Autowired(required = false)
+                             com.mrlbs.waitlist.WaitlistService waitlistService,
+                             @org.springframework.beans.factory.annotation.Autowired(required = false)
+                             com.mrlbs.waitlist.WaitlistEntryRepository waitlistEntryRepository,
+                             @org.springframework.beans.factory.annotation.Autowired(required = false)
+                             com.mrlbs.ai.review.BookingAiReviewRepository reviewRepository) {
         this.bookingService = bookingService;
+        this.waitlistService = waitlistService;
+        this.waitlistEntryRepository = waitlistEntryRepository;
         this.reviewRepository = reviewRepository;
     }
 
@@ -59,26 +80,67 @@ public class BookingController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('MEMBER')")
     public BookingResponse submit(@AuthenticationPrincipal OidcUser user,
+                                  @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail,
                                   @Valid @RequestBody BookingRequest request) {
-        return BookingResponse.from(bookingService.submit(user.getEmail(), request));
+        String email = user != null ? user.getEmail() : headerEmail;
+        if (email == null || email.isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED, "Authentication required to submit booking");
+        }
+        Booking booking = bookingService.submit(email, request);
+        boolean isWaitlist = booking.getStatus() == BookingStatus.IN_PROGRESS;
+        Long queuePos = null;
+        if (isWaitlist && waitlistService != null && waitlistEntryRepository != null) {
+            var entryOpt = waitlistEntryRepository.findByBookingId(booking.getId());
+            if (entryOpt.isPresent()) {
+                queuePos = waitlistService.calculateQueuePosition(entryOpt.get());
+            }
+        }
+        return BookingResponse.from(booking, isWaitlist, isWaitlist, queuePos);
     }
 
     @PostMapping("/draft")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('MEMBER')")
     public BookingResponse createDraft(@AuthenticationPrincipal OidcUser user,
+                                       @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail,
                                        @Valid @RequestBody BookingRequest request) {
-        Booking draft = bookingService.createDraft(user.getEmail(), request);
+        String email = user != null ? user.getEmail() : headerEmail;
+        if (email == null || email.isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED, "Authentication required to create draft");
+        }
+        Booking draft = bookingService.createDraft(email, request);
         boolean clashes = bookingService.checkClash(draft);
-        return BookingResponse.from(draft, clashes);
+        Long nextQueuePos = null;
+        if (clashes && waitlistService != null && draft.getResource() != null) {
+            nextQueuePos = waitlistService.getNextQueuePosition(draft.getResource().getId(), draft.getStartTime(), draft.getEndTime());
+        }
+        BigDecimal memberBalance = bookingService.getMemberBalance(email);
+        return BookingResponse.from(draft, clashes, clashes, nextQueuePos, memberBalance);
     }
 
     @PostMapping("/{id}/confirm")
     @PreAuthorize("hasRole('MEMBER')")
     public BookingResponse confirmDraft(@AuthenticationPrincipal OidcUser user,
+                                        @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail,
                                         @org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
-        Booking confirmed = bookingService.confirmDraft(user.getEmail(), id);
-        return BookingResponse.from(confirmed, confirmed.getStatus() == BookingStatus.IN_PROGRESS);
+        String email = user != null ? user.getEmail() : headerEmail;
+        if (email == null || email.isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED, "Authentication required to confirm booking");
+        }
+        Booking confirmed = bookingService.confirmDraft(email, id);
+        boolean isWaitlist = confirmed.getStatus() == BookingStatus.IN_PROGRESS;
+        Long queuePos = null;
+        if (isWaitlist && waitlistService != null && waitlistEntryRepository != null) {
+            var entryOpt = waitlistEntryRepository.findByBookingId(confirmed.getId());
+            if (entryOpt.isPresent()) {
+                queuePos = waitlistService.calculateQueuePosition(entryOpt.get());
+            }
+        }
+        BigDecimal memberBalance = bookingService.getMemberBalance(email);
+        return BookingResponse.from(confirmed, isWaitlist, isWaitlist, queuePos, memberBalance);
     }
 
     @org.springframework.web.bind.annotation.DeleteMapping("/{id}")
@@ -97,6 +159,15 @@ public class BookingController {
             return org.springframework.http.ResponseEntity.noContent().build();
         }
         return org.springframework.http.ResponseEntity.ok(BookingResponse.from(cancelled));
+    }
+
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasRole('MEMBER')")
+    public org.springframework.http.ResponseEntity<BookingResponse> cancelBooking(
+            @AuthenticationPrincipal OidcUser user,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail,
+            @org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
+        return deleteBooking(user, headerEmail, id);
     }
 
 

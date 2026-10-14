@@ -24,6 +24,10 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             UUID resourceId, BookingStatus status, LocalDateTime before, LocalDateTime after);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT b FROM Booking b WHERE b.id = :id")
+    Optional<Booking> findByIdForUpdate(@Param("id") UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT b FROM Booking b WHERE b.resource.id = :resourceId AND b.status IN (com.mrlbs.booking.BookingStatus.CONFIRMED, com.mrlbs.booking.BookingStatus.PENDING, com.mrlbs.booking.BookingStatus.PENDING_APPROVAL, com.mrlbs.booking.BookingStatus.IN_PROGRESS) AND b.startTime < :end AND b.endTime > :start")
     List<Booking> findOverlappingConfirmedForUpdate(
             @Param("resourceId") UUID resourceId,

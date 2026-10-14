@@ -11,6 +11,9 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: none
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
   rabbitmq:
     addresses: ${SPRING_RABBITMQ_ADDRESSES:}
     host: ${SPRING_RABBITMQ_HOST:localhost}
