@@ -200,6 +200,24 @@ class BookingServiceTests {
     }
 
     @Test
+    void approvalRequiredResourcesUsePendingApprovalStatus() {
+        var rule = new com.mrlbs.resource.BookingRule();
+        rule.setBookingPolicy(com.mrlbs.resource.BookingPolicy.APPROVAL_REQUIRED);
+        when(resource.getBookingRule()).thenReturn(rule);
+        when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
+        when(bookingRepository.findOverlappingConfirmedForUpdate(any(), any(), any())).thenReturn(java.util.List.of());
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
+
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("100"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+
+        Booking booking = service.submit("member@iitk.ac.in",
+                new BookingRequest(resourceId, LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(1).plusHours(1)));
+
+        assertEquals(BookingStatus.PENDING_APPROVAL, booking.getStatus());
+    }
+
+    @Test
     void partialOverlapWithBookedSlotIsRejectedAsSlotConflict() {
         when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
         var start = LocalDateTime.now().plusDays(1);

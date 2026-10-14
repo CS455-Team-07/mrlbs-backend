@@ -136,7 +136,7 @@ public class BookingService {
             account.debit(quote.totalCredits());
             creditAccountRepository.save(account);
 
-            booking.setStatus(conflict == BookingConflictType.EXACT_MATCH ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED);
+            booking.setStatus(resolveBookingStatus(resource, conflict));
             return bookingRepository.save(booking);
         } catch (RuntimeException e) {
             // If it didn't meet criteria, delete the draft from the database
@@ -223,13 +223,21 @@ public class BookingService {
         }
 
         Booking booking = new Booking(ownerEmail, resource, start, end,
-                conflict == BookingConflictType.EXACT_MATCH ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED,
+                resolveBookingStatus(resource, conflict),
                 quote.totalCredits());
         booking.setMemberId(memberId);
         Booking saved = bookingRepository.save(booking);
         account.debit(quote.totalCredits());
         creditAccountRepository.save(account);
         return saved;
+    }
+
+    private BookingStatus resolveBookingStatus(LabResource resource, BookingConflictType conflict) {
+        BookingRule rule = resource != null ? resource.getBookingRule() : null;
+        if (rule != null && rule.getBookingPolicy() == com.mrlbs.resource.BookingPolicy.APPROVAL_REQUIRED) {
+            return BookingStatus.PENDING_APPROVAL;
+        }
+        return conflict == BookingConflictType.EXACT_MATCH ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED;
     }
 
     private void validateIdentity(String ownerEmail) {
