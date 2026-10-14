@@ -24,10 +24,18 @@ public class GeminiClient {
     private final GeminiConfig config;
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
+    private final com.mrlbs.ai.observability.AiAgentLogger aiLogger;
 
     public GeminiClient(GeminiConfig config, ObjectMapper objectMapper) {
+        this(config, objectMapper, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public GeminiClient(GeminiConfig config, ObjectMapper objectMapper,
+                        @org.springframework.beans.factory.annotation.Autowired(required = false) com.mrlbs.ai.observability.AiAgentLogger aiLogger) {
         this.config = config;
         this.objectMapper = objectMapper;
+        this.aiLogger = aiLogger;
 
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(config.getTimeoutSeconds()));
@@ -54,8 +62,17 @@ public class GeminiClient {
      * @return Optional containing the raw JSON response text from Gemini, or empty on failure.
      */
     public Optional<String> generateStructuredContent(String systemInstruction, String userPrompt) {
+        String correlationId = org.slf4j.MDC.get(com.mrlbs.ai.observability.AiAgentLogger.MDC_CORRELATION_ID);
+        String agent = org.slf4j.MDC.get(com.mrlbs.ai.observability.AiAgentLogger.MDC_AGENT);
+        if (agent == null) {
+            agent = "AI_CLIENT";
+        }
+
         if (!config.isConfigured()) {
             log.warn("Gemini API call skipped: GEMINI_API_KEY is not configured.");
+            if (aiLogger != null) {
+                aiLogger.logModelFailure(agent, correlationId, config.getModel(), 0, "NOT_CONFIGURED", "GEMINI_API_KEY is not configured", true);
+            }
             return Optional.empty();
         }
 
@@ -83,6 +100,12 @@ public class GeminiClient {
                 )
         );
 
+        long startNs = System.nanoTime();
+        if (aiLogger != null) {
+            aiLogger.logToolStart(agent, correlationId, com.mrlbs.ai.observability.AiAgentLogger.TOOL_GEMINI,
+                    Map.of("model", config.getModel(), "promptChars", userPrompt != null ? userPrompt.length() : 0));
+        }
+
         try {
             String responseBody = restClient.post()
                     .uri(url)
@@ -92,24 +115,61 @@ public class GeminiClient {
                     .retrieve()
                     .body(String.class);
 
+            long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+
             if (responseBody == null || responseBody.isBlank()) {
                 log.warn("Gemini API returned an empty response body.");
+                if (aiLogger != null) {
+                    aiLogger.logValidationFailure(agent, correlationId, "EMPTY_RESPONSE", "");
+                    aiLogger.logToolFailure(agent, correlationId, com.mrlbs.ai.observability.AiAgentLogger.TOOL_GEMINI,
+                            durationMs, "EMPTY_RESPONSE", "Gemini returned empty response body");
+                }
                 return Optional.empty();
             }
 
             JsonNode root = objectMapper.readTree(responseBody);
             JsonNode textNode = root.at("/candidates/0/content/parts/0/text");
             if (textNode.isMissingNode() || textNode.asText().isBlank()) {
-                log.warn("Gemini response did not contain candidates[0].content.parts[0].text: {}", responseBody);
+                String sanitizedBody = com.mrlbs.ai.observability.AiLogSanitizer.truncate(responseBody, 150);
+                log.warn("Gemini response did not contain candidates[0].content.parts[0].text: {}", sanitizedBody);
+                if (aiLogger != null) {
+                    aiLogger.logValidationFailure(agent, correlationId, "MISSING_CANDIDATE_TEXT", sanitizedBody);
+                    aiLogger.logToolFailure(agent, correlationId, com.mrlbs.ai.observability.AiAgentLogger.TOOL_GEMINI,
+                            durationMs, "SCHEMA_VALIDATION_FAILED", "Response did not contain candidates[0].content.parts[0].text");
+                }
                 return Optional.empty();
             }
 
-            return Optional.of(textNode.asText());
+            String contentText = textNode.asText();
+            if (aiLogger != null) {
+                aiLogger.logModelCall(agent, correlationId, config.getModel(), durationMs, "SUCCESS",
+                        userPrompt != null ? userPrompt.length() : 0, contentText.length());
+                aiLogger.logToolComplete(agent, correlationId, com.mrlbs.ai.observability.AiAgentLogger.TOOL_GEMINI,
+                        durationMs, "SUCCESS", Map.of("responseChars", contentText.length()));
+            }
+
+            return Optional.of(contentText);
         } catch (RestClientResponseException e) {
-            log.error("Gemini API returned HTTP status {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+            String sanitizedErr = com.mrlbs.ai.observability.AiLogSanitizer.sanitize(e.getResponseBodyAsString());
+            log.error("Gemini API returned HTTP status {}: {}", e.getStatusCode(), sanitizedErr);
+            if (aiLogger != null) {
+                aiLogger.logModelFailure(agent, correlationId, config.getModel(), durationMs,
+                        "HTTP_" + e.getStatusCode(), sanitizedErr, true);
+                aiLogger.logToolFailure(agent, correlationId, com.mrlbs.ai.observability.AiAgentLogger.TOOL_GEMINI,
+                        durationMs, "HTTP_" + e.getStatusCode(), sanitizedErr);
+            }
             return Optional.empty();
         } catch (Exception e) {
-            log.error("Error communicating with Gemini API: {}", e.getMessage());
+            long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+            String sanitizedErr = com.mrlbs.ai.observability.AiLogSanitizer.sanitize(e.getMessage());
+            log.error("Error communicating with Gemini API: {}", sanitizedErr);
+            if (aiLogger != null) {
+                aiLogger.logModelFailure(agent, correlationId, config.getModel(), durationMs,
+                        e.getClass().getSimpleName(), sanitizedErr, true);
+                aiLogger.logToolFailure(agent, correlationId, com.mrlbs.ai.observability.AiAgentLogger.TOOL_GEMINI,
+                        durationMs, e.getClass().getSimpleName(), sanitizedErr);
+            }
             return Optional.empty();
         }
     }

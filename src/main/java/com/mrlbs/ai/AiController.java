@@ -49,16 +49,27 @@ public class AiController {
             @RequestParam(required = false) String contextDate,
             java.security.Principal principal,
             jakarta.servlet.http.HttpServletRequest httpRequest) {
-        String clientKey = resolveClientKey(principal, httpRequest);
-        if (!rateLimiter.tryAcquire(clientKey)) {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS)
-                    .body(Map.of("error", "Rate limit exceeded. Please wait a moment before sending more AI requests."));
-        }
+        String correlationId = resolveCorrelationId(httpRequest);
+        org.slf4j.MDC.put(com.mrlbs.ai.observability.AiAgentLogger.MDC_CORRELATION_ID, correlationId);
+        org.slf4j.MDC.put(com.mrlbs.ai.observability.AiAgentLogger.MDC_AGENT, com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION);
 
-        LocalDate refDate = (contextDate != null && !contextDate.isBlank())
-                ? LocalDate.parse(contextDate)
-                : LocalDate.now();
-        return ResponseEntity.ok(recommendationService.parseIntent(request.prompt(), refDate));
+        try {
+            String clientKey = resolveClientKey(principal, httpRequest);
+            if (!rateLimiter.tryAcquire(clientKey)) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS)
+                        .header("X-Correlation-ID", correlationId)
+                        .body(Map.of("error", "Rate limit exceeded. Please wait a moment before sending more AI requests."));
+            }
+
+            LocalDate refDate = (contextDate != null && !contextDate.isBlank())
+                    ? LocalDate.parse(contextDate)
+                    : LocalDate.now();
+            return ResponseEntity.ok()
+                    .header("X-Correlation-ID", correlationId)
+                    .body(recommendationService.parseIntent(request.prompt(), refDate));
+        } finally {
+            org.slf4j.MDC.clear();
+        }
     }
 
     /**
@@ -70,14 +81,39 @@ public class AiController {
             @Valid @RequestBody AiPromptRequest request,
             java.security.Principal principal,
             jakarta.servlet.http.HttpServletRequest httpRequest) {
-        String clientKey = resolveClientKey(principal, httpRequest);
-        if (!rateLimiter.tryAcquire(clientKey)) {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS)
-                    .body(AiRecommendationResponse.error("Rate limit exceeded. Please wait a moment before sending more AI requests."));
-        }
+        String correlationId = resolveCorrelationId(httpRequest);
+        org.slf4j.MDC.put(com.mrlbs.ai.observability.AiAgentLogger.MDC_CORRELATION_ID, correlationId);
+        org.slf4j.MDC.put(com.mrlbs.ai.observability.AiAgentLogger.MDC_AGENT, com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION);
 
-        AiRecommendationResponse response = recommendationService.getRecommendations(request);
-        return ResponseEntity.ok(response);
+        try {
+            String clientKey = resolveClientKey(principal, httpRequest);
+            if (!rateLimiter.tryAcquire(clientKey)) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS)
+                        .header("X-Correlation-ID", correlationId)
+                        .body(AiRecommendationResponse.error("Rate limit exceeded. Please wait a moment before sending more AI requests."));
+            }
+
+            AiRecommendationResponse response = recommendationService.getRecommendations(request);
+            return ResponseEntity.ok()
+                    .header("X-Correlation-ID", correlationId)
+                    .body(response);
+        } finally {
+            org.slf4j.MDC.clear();
+        }
+    }
+
+    private String resolveCorrelationId(jakarta.servlet.http.HttpServletRequest httpRequest) {
+        if (httpRequest != null) {
+            String header = httpRequest.getHeader("X-Correlation-ID");
+            if (header != null && !header.isBlank()) {
+                return header.trim();
+            }
+            header = httpRequest.getHeader("X-Request-ID");
+            if (header != null && !header.isBlank()) {
+                return header.trim();
+            }
+        }
+        return java.util.UUID.randomUUID().toString();
     }
 
     private String resolveClientKey(java.security.Principal principal, jakarta.servlet.http.HttpServletRequest httpRequest) {

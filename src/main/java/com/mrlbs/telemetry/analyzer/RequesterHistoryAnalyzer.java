@@ -34,15 +34,27 @@ public class RequesterHistoryAnalyzer {
     private final BookingRepository bookingRepository;
     private final ResourceTelemetryMappingRepository mappingRepository;
     private final ResourceTelemetryClient telemetryClient;
+    private final com.mrlbs.ai.observability.AiAgentLogger aiLogger;
 
     public RequesterHistoryAnalyzer(
             BookingRepository bookingRepository,
             ResourceTelemetryMappingRepository mappingRepository,
             ResourceTelemetryClient telemetryClient
     ) {
+        this(bookingRepository, mappingRepository, telemetryClient, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public RequesterHistoryAnalyzer(
+            BookingRepository bookingRepository,
+            ResourceTelemetryMappingRepository mappingRepository,
+            ResourceTelemetryClient telemetryClient,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) com.mrlbs.ai.observability.AiAgentLogger aiLogger
+    ) {
         this.bookingRepository = bookingRepository;
         this.mappingRepository = mappingRepository;
         this.telemetryClient = telemetryClient;
+        this.aiLogger = aiLogger;
     }
 
     public RequesterHistoryProfile analyzeRequesterHistory(
@@ -50,6 +62,19 @@ public class RequesterHistoryAnalyzer {
             UUID targetResourceId,
             UUID currentBookingId
     ) {
+        String correlationId = org.slf4j.MDC.get(com.mrlbs.ai.observability.AiAgentLogger.MDC_CORRELATION_ID);
+        String agent = org.slf4j.MDC.get(com.mrlbs.ai.observability.AiAgentLogger.MDC_AGENT);
+        if (agent == null) {
+            agent = com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW;
+        }
+
+        long startNs = System.nanoTime();
+        if (aiLogger != null) {
+            aiLogger.logToolStart(agent, correlationId, com.mrlbs.ai.observability.AiAgentLogger.TOOL_REQUESTER_HISTORY,
+                    java.util.Map.of("memberId", memberId != null ? memberId : "N/A",
+                            "targetResourceId", targetResourceId != null ? targetResourceId : "N/A"));
+        }
+
         // 1. Fetch all bookings for member and filter out the pending booking currently under review
         List<Booking> allMemberBookings = bookingRepository.findByMemberIdOrderByStartTimeDesc(memberId);
 
@@ -195,6 +220,17 @@ public class RequesterHistoryAnalyzer {
                     historicalTelemetryQuality = "UNAVAILABLE";
                 }
             }
+        }
+
+        long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+        if (aiLogger != null) {
+            aiLogger.logToolComplete(agent, correlationId, com.mrlbs.ai.observability.AiAgentLogger.TOOL_REQUESTER_HISTORY,
+                    durationMs, "SUCCESS", java.util.Map.of(
+                            "priorTotal", priorBookingsTotal,
+                            "priorCompleted", priorBookingsCompleted,
+                            "hasHistoricalTelemetry", hasHistoricalTelemetry,
+                            "quality", historicalTelemetryQuality != null ? historicalTelemetryQuality : "UNAVAILABLE"
+                    ));
         }
 
         return new RequesterHistoryProfile(

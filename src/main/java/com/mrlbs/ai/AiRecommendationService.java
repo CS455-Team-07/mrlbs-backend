@@ -35,15 +35,26 @@ public class AiRecommendationService {
     private final LabResourceRepository resourceRepository;
     private final BookingRepository bookingRepository;
     private final ObjectMapper objectMapper;
+    private final com.mrlbs.ai.observability.AiAgentLogger aiLogger;
 
     public AiRecommendationService(GeminiClient geminiClient,
                                    LabResourceRepository resourceRepository,
                                    BookingRepository bookingRepository,
                                    ObjectMapper objectMapper) {
+        this(geminiClient, resourceRepository, bookingRepository, objectMapper, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AiRecommendationService(GeminiClient geminiClient,
+                                   LabResourceRepository resourceRepository,
+                                   BookingRepository bookingRepository,
+                                   ObjectMapper objectMapper,
+                                   @org.springframework.beans.factory.annotation.Autowired(required = false) com.mrlbs.ai.observability.AiAgentLogger aiLogger) {
         this.geminiClient = geminiClient;
         this.resourceRepository = resourceRepository;
         this.bookingRepository = bookingRepository;
         this.objectMapper = objectMapper;
+        this.aiLogger = aiLogger;
     }
 
     /**
@@ -97,8 +108,8 @@ public class AiRecommendationService {
         if (isGreeting(prompt)) {
             return true;
         }
-        // Direct type selection chips (e.g. "Lecture Hall", "KD Lab", "GPU Cluster")
-        if (lower.equals("lecture hall") || lower.equals("kd lab") || lower.equals("lab") || lower.equals("gpu") || lower.equals("gpu cluster") || lower.equals("microscope")) {
+        // Direct type selection chips (e.g. "Lecture Hall", "KD Lab", "GPU Cluster", "LHC")
+        if (lower.equals("lecture hall") || lower.equals("lhc") || lower.equals("kd lab") || lower.equals("kd") || lower.equals("rm") || lower.equals("lab") || lower.equals("gpu") || lower.equals("gpu cluster") || lower.equals("microscope")) {
             return true;
         }
         // Clear date + recognized resource type (e.g. "lecture for 19 th oct")
@@ -113,8 +124,15 @@ public class AiRecommendationService {
     }
 
     private Optional<ExtractedIntent> parseIntentWithGemini(String prompt, LocalDate today) {
+        String correlationId = org.slf4j.MDC.get(com.mrlbs.ai.observability.AiAgentLogger.MDC_CORRELATION_ID);
         String systemInstruction = String.format(
-                "You are the MRLBS AI intent parser. Reference date: %s (%d). " +
+                "You are the MRLBS AI intent parser for Indian Institute of Technology Kanpur (IITK) resource bookings. " +
+                        "Reference date: %s (%d). " +
+                        "Campus building context & type mappings: " +
+                        "- 'LHC' or 'Lecture Hall Complex' -> resourceType: 'Lecture Hall' (e.g. L-7, L-1, classrooms). " +
+                        "- 'KD' or 'KD Building' -> resourceType: 'KD Lab' (computer science / data labs). " +
+                        "- 'RM' or 'RM Building' or 'Rajeev Motwani' -> resourceType: 'RM Building' (computing facilities). " +
+                        "- 'GPU' / 'Cluster' / 'DGX' -> resourceType: 'GPU'. " +
                         "Extract criteria into valid JSON: " +
                         "{\"resourceType\": string|null, " +
                         "\"date\": \"YYYY-MM-DD\"|null, " +
@@ -127,8 +145,19 @@ public class AiRecommendationService {
                 today.toString(), today.getYear()
         );
 
+        long startNs = System.nanoTime();
+        if (aiLogger != null) {
+            aiLogger.logToolStart(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                    com.mrlbs.ai.observability.AiAgentLogger.TOOL_INTENT_PARSER, java.util.Map.of("parser", "gemini"));
+        }
+
         Optional<String> jsonResponse = geminiClient.generateStructuredContent(systemInstruction, prompt);
         if (jsonResponse.isEmpty()) {
+            long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+            if (aiLogger != null) {
+                aiLogger.logToolFailure(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                        com.mrlbs.ai.observability.AiAgentLogger.TOOL_INTENT_PARSER, durationMs, "NO_RESPONSE", "Gemini returned empty intent response");
+            }
             return Optional.empty();
         }
 
@@ -146,9 +175,25 @@ public class AiRecommendationService {
             LocalTime startTime = parseFlexibleTime(startTimeStr);
             LocalTime endTime = parseFlexibleTime(endTimeStr);
 
+            long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+            if (aiLogger != null) {
+                aiLogger.logToolComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                        com.mrlbs.ai.observability.AiAgentLogger.TOOL_INTENT_PARSER, durationMs, "SUCCESS",
+                        java.util.Map.of("resourceType", normalizedType != null ? normalizedType : "UNSPECIFIED",
+                                "hasDate", date != null));
+            }
+
             return Optional.of(new ExtractedIntent(normalizedType, date, startTime, endTime, minCapacity, clarifying));
         } catch (Exception e) {
-            log.warn("Failed to parse Gemini intent JSON output: {}", e.getMessage());
+            long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+            String sanitizedMsg = com.mrlbs.ai.observability.AiLogSanitizer.sanitize(e.getMessage());
+            log.warn("Failed to parse Gemini intent JSON output: {}", sanitizedMsg);
+            if (aiLogger != null) {
+                aiLogger.logValidationFailure(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                        "INTENT_SCHEMA_ERROR: " + sanitizedMsg, jsonResponse.get());
+                aiLogger.logToolFailure(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                        com.mrlbs.ai.observability.AiAgentLogger.TOOL_INTENT_PARSER, durationMs, e.getClass().getSimpleName(), sanitizedMsg);
+            }
             return Optional.empty();
         }
     }
@@ -182,11 +227,14 @@ public class AiRecommendationService {
     private String normalizeResourceType(String raw) {
         if (raw == null || raw.isBlank()) return null;
         String lower = raw.trim().toLowerCase(Locale.ROOT);
-        if (lower.contains("lecture") || lower.contains("hall") || lower.contains("classroom")) {
+        if (lower.contains("lecture") || lower.contains("hall") || lower.contains("classroom") || lower.contains("lhc")) {
             return "Lecture Hall";
         }
         if (lower.contains("kd") || lower.contains("lab")) {
             return "KD Lab";
+        }
+        if (lower.contains("rm")) {
+            return "RM Building";
         }
         if (lower.contains("gpu") || lower.contains("cluster")) {
             return "GPU";
@@ -264,12 +312,14 @@ public class AiRecommendationService {
             } catch (Exception ignored) {}
         }
 
-        // Resource type extraction (recognize "lecture", "hall", "classroom", "lab", "kd")
+        // Resource type extraction (recognize "lecture", "hall", "classroom", "lab", "kd", "lhc", "rm")
         String type = null;
-        if (lower.contains("lecture") || lower.contains("classroom") || lower.contains("hall") || lower.contains("room")) {
+        if (lower.contains("lecture") || lower.contains("classroom") || lower.contains("hall") || lower.contains("room") || lower.contains("lhc")) {
             type = "Lecture Hall";
         } else if (lower.contains("kd") || lower.contains("lab")) {
             type = "KD Lab";
+        } else if (lower.contains("rm")) {
+            type = "RM Building";
         } else if (lower.contains("gpu") || lower.contains("compute") || lower.contains("cluster")) {
             type = "GPU";
         } else if (lower.contains("microscope")) {
@@ -343,6 +393,13 @@ public class AiRecommendationService {
      */
     @Transactional(readOnly = true)
     public AiRecommendationResponse getRecommendations(AiPromptRequest request) {
+        String correlationId = org.slf4j.MDC.get(com.mrlbs.ai.observability.AiAgentLogger.MDC_CORRELATION_ID);
+        if (correlationId == null || correlationId.isBlank()) {
+            correlationId = java.util.UUID.randomUUID().toString();
+            org.slf4j.MDC.put(com.mrlbs.ai.observability.AiAgentLogger.MDC_CORRELATION_ID, correlationId);
+        }
+        org.slf4j.MDC.put(com.mrlbs.ai.observability.AiAgentLogger.MDC_AGENT, com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION);
+
         LocalDate contextDate = null;
         if (request.contextDate() != null && !request.contextDate().isBlank()) {
             try {
@@ -353,12 +410,27 @@ public class AiRecommendationService {
             contextDate = LocalDate.now();
         }
 
+        long startNs = System.nanoTime();
+        if (aiLogger != null) {
+            aiLogger.logAgentStart(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                    geminiClient.getModelName(), java.util.Map.of(
+                            "promptLength", request.prompt() != null ? request.prompt().length() : 0,
+                            "hasPreviousIntent", request.previousIntent() != null,
+                            "contextDate", String.valueOf(contextDate)
+                    ));
+        }
+
         ExtractedIntent rawIntent = parseIntent(request.prompt(), contextDate);
         ExtractedIntent intent = mergeWithPreviousIntent(rawIntent, request.previousIntent());
 
         if (isGreeting(request.prompt())) {
             String welcomeMsg = "Hello! How can I help you with resource booking today? What type of resource are you looking for, and for which date?";
             List<String> suggestions = List.of("Lecture Hall", "KD Lab", "GPU Cluster", "Today", "Tomorrow");
+            long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+            if (aiLogger != null) {
+                aiLogger.logAgentComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                        geminiClient.getModelName(), durationMs, "GREETING", welcomeMsg, java.util.Map.of());
+            }
             return AiRecommendationResponse.followUp(welcomeMsg, rawIntent, suggestions);
         }
 
@@ -374,6 +446,11 @@ public class AiRecommendationService {
                 dateSuggestions.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster"));
             }
             dateSuggestions.addAll(List.of("Today", "Tomorrow", "Next Monday"));
+            long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+            if (aiLogger != null) {
+                aiLogger.logAgentComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                        geminiClient.getModelName(), durationMs, "DATE_REQUIRED", question, java.util.Map.of());
+            }
             return AiRecommendationResponse.followUp(question, intent, dateSuggestions);
         }
 
@@ -388,8 +465,23 @@ public class AiRecommendationService {
         LocalDateTime slotEnd = LocalDateTime.of(targetDate, reqEnd);
 
         // Fetch all active ground-truth resources from database
+        long catStartNs = System.nanoTime();
+        if (aiLogger != null) {
+            aiLogger.logToolStart(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                    com.mrlbs.ai.observability.AiAgentLogger.TOOL_CATALOG_SEARCH,
+                    java.util.Map.of("targetDate", targetDate.toString(), "start", reqStart.toString(), "end", reqEnd.toString()));
+        }
+
         List<LabResource> allActiveResources = resourceRepository.findByActiveTrue();
         if (allActiveResources.isEmpty()) {
+            long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+            if (aiLogger != null) {
+                aiLogger.logToolComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                        com.mrlbs.ai.observability.AiAgentLogger.TOOL_CATALOG_SEARCH, (System.nanoTime() - catStartNs) / 1_000_000,
+                        "EMPTY_CATALOG", java.util.Map.of("activeCount", 0));
+                aiLogger.logAgentComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                        geminiClient.getModelName(), durationMs, "NO_CATALOG_RESOURCES", "No active lab resources", java.util.Map.of());
+            }
             return AiRecommendationResponse.results(
                     "No active lab resources are currently registered in the institutional catalog.",
                     null,
@@ -403,6 +495,14 @@ public class AiRecommendationService {
         // Batch query conflicting resource IDs in ONE single database query (eliminating N+1 WAN round-trips)
         List<UUID> bookedList = bookingRepository.findBookedResourceIdsInSlot(slotStart, slotEnd);
         java.util.Set<UUID> bookedResourceIds = bookedList != null ? new java.util.HashSet<>(bookedList) : java.util.Collections.emptySet();
+
+        long catDurationMs = (System.nanoTime() - catStartNs) / 1_000_000;
+        if (aiLogger != null) {
+            aiLogger.logToolComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                    com.mrlbs.ai.observability.AiAgentLogger.TOOL_CATALOG_SEARCH, catDurationMs, "SUCCESS",
+                    java.util.Map.of("activeCatalogCount", allActiveResources.size(),
+                            "conflictingSlotsCount", bookedResourceIds.size()));
+        }
 
         // Rank candidates factually against ground-truth database
         List<CandidateEvaluation> evaluations = new ArrayList<>();
@@ -471,6 +571,13 @@ public class AiRecommendationService {
             suggestedRefinements.addAll(List.of("50+ seats", "80+ seats", "100+ seats", "200+ seats"));
         }
 
+        long totalDurationMs = (System.nanoTime() - startNs) / 1_000_000;
+        if (aiLogger != null) {
+            aiLogger.logAgentComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
+                    geminiClient.getModelName(), totalDurationMs, top.matchType(), summary,
+                    java.util.Map.of("topResource", top.name(), "topResourceId", top.resourceId(), "alternativesCount", alternatives.size()));
+        }
+
         return AiRecommendationResponse.results(summary, engagementPrompt, suggestedRefinements, intent, top, alternatives);
     }
 
@@ -522,7 +629,11 @@ public class AiRecommendationService {
         boolean typeMatches = intent.resourceType() == null ||
                 resource.getType().toLowerCase().contains(intent.resourceType().toLowerCase()) ||
                 intent.resourceType().toLowerCase().contains(resource.getType().toLowerCase()) ||
-                resource.getName().toLowerCase().contains(intent.resourceType().toLowerCase());
+                resource.getName().toLowerCase().contains(intent.resourceType().toLowerCase()) ||
+                (resource.getLocation() != null && (
+                        resource.getLocation().toLowerCase().contains(intent.resourceType().toLowerCase()) ||
+                        intent.resourceType().toLowerCase().contains(resource.getLocation().toLowerCase())
+                ));
 
         boolean capacityFits = intent.minCapacity() == null ||
                 resource.getCapacity() == null ||
