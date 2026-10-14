@@ -165,16 +165,19 @@ public class BookingService {
     }
 
     @Transactional
-    public void deleteBooking(String ownerEmail, UUID bookingId) {
+    public Booking deleteBooking(String ownerEmail, UUID bookingId) {
         UUID memberId = resolveMemberId(ownerEmail);
         validateIdentity(ownerEmail);
         Booking booking = bookingRepository.findById(bookingId).orElse(null);
         if (booking == null) {
-            return;
+            return null;
         }
         if (!isBookingOwner(booking, memberId, ownerEmail)) {
             throw new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
                     "Booking does not belong to the authenticated member.");
+        }
+        if (booking.getStatus() == BookingStatus.CANCELLED) {
+            return booking;
         }
         // If credits were already debited for a confirmed/in_progress/pending booking, refund them
         if (booking.getStatus() == BookingStatus.IN_PROGRESS || booking.getStatus() == BookingStatus.PENDING || booking.getStatus() == BookingStatus.CONFIRMED || booking.getStatus() == BookingStatus.PENDING_APPROVAL) {
@@ -185,7 +188,16 @@ public class BookingService {
                 });
             }
         }
-        bookingRepository.delete(booking);
+        // If draft, remove the unconfirmed draft
+        if (booking.getStatus() == BookingStatus.DRAFT) {
+            bookingRepository.delete(booking);
+            return null;
+        }
+
+        // Active booking: persist in DB with CANCELLED status and set cancelled timestamp
+        booking.setStatus(BookingStatus.CANCELLED);
+        booking.setCancelledAt(LocalDateTime.now());
+        return bookingRepository.save(booking);
     }
 
 

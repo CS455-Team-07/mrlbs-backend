@@ -355,4 +355,27 @@ class BookingServiceTests {
 
         verify(bookingRepository).delete(draft);
     }
+
+    @Test
+    void cancelConfirmedBookingPersistsCancelledStatusAndRefundsCredits() {
+        UUID bookingId = UUID.randomUUID();
+        var start = LocalDateTime.now().plusDays(1);
+        Booking confirmed = new Booking("member@iitk.ac.in", resource, start, start.plusHours(1),
+                BookingStatus.CONFIRMED, new BigDecimal("4"));
+        confirmed.setId(bookingId);
+        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(confirmed));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
+
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("6"));
+        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+
+        Booking cancelled = service.deleteBooking("member@iitk.ac.in", bookingId);
+
+        assertEquals(BookingStatus.CANCELLED, cancelled.getStatus());
+        org.junit.jupiter.api.Assertions.assertNotNull(cancelled.getCancelledAt());
+        assertEquals(new BigDecimal("10"), account.getBalance());
+        verify(creditAccountRepository).save(account);
+        verify(bookingRepository).save(confirmed);
+        verify(bookingRepository, never()).delete(any());
+    }
 }

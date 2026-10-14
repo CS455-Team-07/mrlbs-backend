@@ -80,6 +80,11 @@ public class DemoAuthenticationFilter extends OncePerRequestFilter {
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static String resolveEmail(HttpServletRequest request) {
+        String headerEmail = request.getHeader("X-User-Email");
+        if (headerEmail != null && !headerEmail.isBlank()) {
+            return headerEmail.trim();
+        }
+
         if (request.getCookies() == null) return "";
         // Strictly prefer the admin-identity cookie so that a DEMO_MEMBER_EMAIL
         // cookie from a previous session cannot shadow a freshly issued admin identity.

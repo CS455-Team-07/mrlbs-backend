@@ -11,9 +11,19 @@ public record BookingResponse(UUID id, UUID resourceId, String resourceName, Loc
     }
 
     public static BookingResponse from(Booking booking, boolean clashes) {
+        String resourceName = null;
+        UUID resourceId = null;
+        if (booking.getResource() != null) {
+            try {
+                resourceId = booking.getResource().getId();
+                resourceName = booking.getResource().getName();
+            } catch (Exception ignored) {
+                resourceName = "Archived Resource";
+            }
+        }
         return new BookingResponse(booking.getId(),
-                booking.getResource() != null ? booking.getResource().getId() : null,
-                booking.getResource() != null ? booking.getResource().getName() : null,
+                resourceId,
+                resourceName != null ? resourceName : "Archived Resource",
                 booking.getStartTime(),
                 booking.getEndTime(),
                 booking.getStatus(),

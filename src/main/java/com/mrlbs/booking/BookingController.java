@@ -46,17 +46,33 @@ public class BookingController {
     }
 
     @org.springframework.web.bind.annotation.DeleteMapping("/{id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteBooking(@AuthenticationPrincipal OidcUser user,
-                              @org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
-        bookingService.deleteBooking(user.getEmail(), id);
+    public org.springframework.http.ResponseEntity<BookingResponse> deleteBooking(
+            @AuthenticationPrincipal OidcUser user,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail,
+            @org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
+        String email = user != null ? user.getEmail() : headerEmail;
+        if (email == null || email.isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED, "Authentication required to cancel booking");
+        }
+        Booking cancelled = bookingService.deleteBooking(email, id);
+        if (cancelled == null) {
+            return org.springframework.http.ResponseEntity.noContent().build();
+        }
+        return org.springframework.http.ResponseEntity.ok(BookingResponse.from(cancelled));
     }
 
 
 
 
     @GetMapping
-    public List<BookingResponse> history(@AuthenticationPrincipal OidcUser user) {
-        return bookingService.history(user.getEmail()).stream().map(BookingResponse::from).toList();
+    public List<BookingResponse> history(@AuthenticationPrincipal OidcUser user,
+                                         @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail) {
+        String email = user != null ? user.getEmail() : headerEmail;
+        if (email == null || email.isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED, "Authentication required to view booking history");
+        }
+        return bookingService.history(email).stream().map(BookingResponse::from).toList();
     }
 }
