@@ -10,3 +10,4 @@ public enum BookingStatus {
     COMPLETED,
     IN_PROGRESS
 }
+

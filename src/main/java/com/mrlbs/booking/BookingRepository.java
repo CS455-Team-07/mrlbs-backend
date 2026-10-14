@@ -15,6 +15,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.resource WHERE b.memberId = :memberId ORDER BY b.startTime DESC")
     List<Booking> findByMemberIdOrderByStartTimeDesc(@Param("memberId") UUID memberId);
 
+    List<Booking> findByStatusOrderByStartTimeAsc(BookingStatus status);
+
     List<Booking> findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
             UUID resourceId, BookingStatus status, LocalDateTime before, LocalDateTime after);
 

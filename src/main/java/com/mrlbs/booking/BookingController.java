@@ -2,6 +2,7 @@ package com.mrlbs.booking;
 
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,7 +12,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/bookings")
@@ -22,8 +25,25 @@ public class BookingController {
         this.bookingService = bookingService;
     }
 
+    public record ApprovalRequestResponse(UUID id, String memberEmail, String resourceName, String resourceType,
+                                         LocalDateTime startTime, LocalDateTime endTime, BookingStatus status) {
+        public static ApprovalRequestResponse from(Booking booking, String memberEmail) {
+            String resourceName = booking.getResource() != null ? booking.getResource().getName() : "Archived Resource";
+            String resourceType = booking.getResource() != null ? booking.getResource().getType() : "Unknown";
+            return new ApprovalRequestResponse(
+                    booking.getId(),
+                    memberEmail,
+                    resourceName,
+                    resourceType,
+                    booking.getStartTime(),
+                    booking.getEndTime(),
+                    booking.getStatus());
+        }
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('MEMBER')")
     public BookingResponse submit(@AuthenticationPrincipal OidcUser user,
                                   @Valid @RequestBody BookingRequest request) {
         return BookingResponse.from(bookingService.submit(user.getEmail(), request));
@@ -31,6 +51,7 @@ public class BookingController {
 
     @PostMapping("/draft")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('MEMBER')")
     public BookingResponse createDraft(@AuthenticationPrincipal OidcUser user,
                                        @Valid @RequestBody BookingRequest request) {
         Booking draft = bookingService.createDraft(user.getEmail(), request);
@@ -39,6 +60,7 @@ public class BookingController {
     }
 
     @PostMapping("/{id}/confirm")
+    @PreAuthorize("hasRole('MEMBER')")
     public BookingResponse confirmDraft(@AuthenticationPrincipal OidcUser user,
                                         @org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
         Booking confirmed = bookingService.confirmDraft(user.getEmail(), id);
@@ -46,6 +68,7 @@ public class BookingController {
     }
 
     @org.springframework.web.bind.annotation.DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('MEMBER')")
     public org.springframework.http.ResponseEntity<BookingResponse> deleteBooking(
             @AuthenticationPrincipal OidcUser user,
             @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail,
@@ -66,6 +89,7 @@ public class BookingController {
 
 
     @GetMapping
+    @PreAuthorize("hasRole('MEMBER')")
     public List<BookingResponse> history(@AuthenticationPrincipal OidcUser user,
                                          @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail) {
         String email = user != null ? user.getEmail() : headerEmail;
@@ -74,5 +98,35 @@ public class BookingController {
                     HttpStatus.UNAUTHORIZED, "Authentication required to view booking history");
         }
         return bookingService.history(email).stream().map(BookingResponse::from).toList();
+    }
+
+    @GetMapping("/approvals")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<ApprovalRequestResponse> approvals(@AuthenticationPrincipal OidcUser user) {
+        String email = user.getEmail();
+        String scope = com.mrlbs.security.AdminResourceScope.scopeForEmail(email).orElse(null);
+        return bookingService.pendingApprovalsForAdmin(email, scope).stream()
+                .map(booking -> ApprovalRequestResponse.from(booking, resolveMemberEmail(booking)))
+                .toList();
+    }
+
+    @PostMapping("/{id}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
+    public BookingResponse approve(@AuthenticationPrincipal OidcUser user,
+                                  @org.springframework.web.bind.annotation.PathVariable UUID id) {
+        Booking approved = bookingService.reviewApprovalDecision(user.getEmail(), id, true);
+        return BookingResponse.from(approved);
+    }
+
+    @PostMapping("/{id}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    public BookingResponse reject(@AuthenticationPrincipal OidcUser user,
+                                 @org.springframework.web.bind.annotation.PathVariable UUID id) {
+        Booking rejected = bookingService.reviewApprovalDecision(user.getEmail(), id, false);
+        return BookingResponse.from(rejected);
+    }
+
+    private String resolveMemberEmail(Booking booking) {
+        return bookingService.resolveMemberEmail(booking);
     }
 }

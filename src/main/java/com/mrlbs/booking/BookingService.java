@@ -12,9 +12,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import com.mrlbs.member.MemberRepository;
+import com.mrlbs.security.AdminResourceScope;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -250,6 +252,86 @@ public class BookingService {
             return BookingStatus.PENDING_APPROVAL;
         }
         return conflict == BookingConflictType.EXACT_MATCH ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Booking> pendingApprovalsForAdmin(String adminEmail, String scope) {
+        validateIdentity(adminEmail);
+        List<Booking> pending = bookingRepository.findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL)
+                .stream()
+                .sorted(
+                        Comparator.comparing((Booking booking) -> booking.getStartTime(), Comparator.nullsLast(LocalDateTime::compareTo))
+                                .thenComparing(booking -> booking.getResource() != null ? booking.getResource().getId() : null,
+                                        Comparator.nullsLast(Comparator.naturalOrder()))
+                                .thenComparing(booking -> booking.getCreatedAt(), Comparator.nullsLast(LocalDateTime::compareTo)))
+                .toList();
+        if (scope == null || scope.isBlank()) {
+            return pending;
+        }
+
+        return pending.stream()
+                .filter(booking -> booking.getResource() != null
+                        && booking.getResource().getType() != null
+                        && booking.getResource().getType().equalsIgnoreCase(scope))
+                .toList();
+    }
+
+    @Transactional
+    public Booking reviewApprovalDecision(String adminEmail, UUID bookingId, boolean approved) {
+        validateIdentity(adminEmail);
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
+                        "Booking was not found."));
+
+        if (booking.getStatus() != BookingStatus.PENDING_APPROVAL) {
+            throw new IllegalStateException("Booking is not awaiting approval.");
+        }
+
+        String scope = AdminResourceScope.scopeForEmail(adminEmail).orElse(null);
+        if (scope != null && booking.getResource() != null && booking.getResource().getType() != null
+                && !booking.getResource().getType().equalsIgnoreCase(scope)) {
+            throw new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
+                    "This admin cannot review bookings for the selected resource type.");
+        }
+
+        if (approved) {
+            booking.setStatus(BookingStatus.CONFIRMED);
+            return bookingRepository.save(booking);
+        }
+
+        if (booking.getCreditCost() != null && booking.getCreditCost().signum() > 0) {
+            String memberEmail = resolveOwnerEmail(booking);
+            if (memberEmail != null && !memberEmail.isBlank()) {
+                CreditAccount account = creditAccountRepository.findForUpdate(memberEmail).orElse(null);
+                if (account != null) {
+                    account.credit(booking.getCreditCost());
+                    creditAccountRepository.save(account);
+                }
+            }
+        }
+
+        booking.setStatus(BookingStatus.REJECTED);
+        booking.setCancelledAt(LocalDateTime.now());
+        return bookingRepository.save(booking);
+    }
+
+    public String resolveMemberEmail(Booking booking) {
+        if (booking == null) {
+            return null;
+        }
+        if (booking.getOwnerEmail() != null && !booking.getOwnerEmail().isBlank()) {
+            return booking.getOwnerEmail();
+        }
+        if (booking.getMemberId() == null || memberRepository == null) {
+            return null;
+        }
+        return memberRepository.findById(booking.getMemberId())
+                .map(com.mrlbs.member.Member::getEmail)
+                .orElse(null);
+    }
+
+    private String resolveOwnerEmail(Booking booking) {
+        return resolveMemberEmail(booking);
     }
 
     private void validateIdentity(String ownerEmail) {

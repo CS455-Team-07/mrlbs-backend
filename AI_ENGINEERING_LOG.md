@@ -336,3 +336,32 @@ Admin resource onboarding (`POST /api/resources`) succeeds from the frontend for
 **Decision:** Pending human review.
 
 **Reason:** Bug fix — no functional change to the resource creation logic; only the session-cookie identity resolution for the demo auth mode was corrected.
+
+#### 2026-10-14 — Admin approval queue and scoped in-app notifications
+
+**Task / Context:**
+Add the missing admin request queue for approval-required bookings and a lightweight in-app notification count for the matching scoped admin.
+
+**Prompt:**
+"now can we implement the sending approval requests to that particular resource admin (in side bar(nav bar) there should be option approval requests where admin can see the booking requests) and in-app notications to that particular admin should be sent when the member clicks the confirm booking for the approval-required resources"
+
+**AI Output:**
+Added a pending-approval repository query, scoped queue filtering by `AdminResourceScope`, admin approve/reject methods with credit refund on rejection, and backend endpoints for fetching pending approval requests and reviewing them.
+
+**Student/Team Evaluation:**
+This is a minimal, product-aligned fix. It matches the existing demo auth model and keeps the notification concept scoped to a queue count and admin dashboard rather than adding disconnected notification infrastructure.
+
+**Errors / Risks / Hallucinations:**
+No dedicated push-notification service existed in the project, so the in-app notification is implemented as the admin sidebar badge and queue list generated from actual pending bookings.
+
+**Changes Made After Evaluation:**
+Updated `BookingRepository`, `BookingService`, and `BookingController` to expose `/api/bookings/approvals`, `/api/bookings/{id}/approve`, and `/api/bookings/{id}/reject`; refunds credits on rejection; and filters the queue to the matching resource scope.
+
+**Final Accepted Artifact:**
+Backend approval logic in `src/main/java/com/mrlbs/booking` and admin UI updates in the frontend dashboard/navigation.
+
+**Decision:**
+Accepted
+
+**Reason:**
+It provides the required admin queue and queue count without broadening the work beyond the approval workflow.

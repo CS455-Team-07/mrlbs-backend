@@ -218,6 +218,98 @@ class BookingServiceTests {
     }
 
     @Test
+    void pendingApprovalQueueOnlyReturnsBookingsMatchingTheAdminScope() {
+        LabResource lectureHall = mock(LabResource.class);
+        when(lectureHall.getType()).thenReturn("Lecture Hall");
+
+        LabResource gpu = mock(LabResource.class);
+        when(gpu.getType()).thenReturn("GPU");
+
+        Booking matching = new Booking("member@iitk.ac.in", lectureHall,
+                LocalDateTime.now().plusDays(2), LocalDateTime.now().plusDays(2).plusHours(1),
+                BookingStatus.PENDING_APPROVAL, new BigDecimal("5"));
+        Booking other = new Booking("member2@iitk.ac.in", gpu,
+                LocalDateTime.now().plusDays(3), LocalDateTime.now().plusDays(3).plusHours(1),
+                BookingStatus.PENDING_APPROVAL, new BigDecimal("5"));
+
+        when(bookingRepository.findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL))
+                .thenReturn(java.util.List.of(matching, other));
+
+        var pending = service.pendingApprovalsForAdmin("lhc@iitk.ac.in", "Lecture Hall");
+
+        assertEquals(1, pending.size());
+        assertEquals("Lecture Hall", pending.get(0).getResource().getType());
+    }
+
+    @Test
+    void adminApprovalDecisionConfirmsPendingBooking() {
+        LabResource lectureHall = mock(LabResource.class);
+        when(lectureHall.getType()).thenReturn("Lecture Hall");
+
+        UUID bookingId = UUID.randomUUID();
+        Booking pending = new Booking("member@iitk.ac.in", lectureHall,
+                LocalDateTime.now().plusDays(2), LocalDateTime.now().plusDays(2).plusHours(1),
+                BookingStatus.PENDING_APPROVAL, new BigDecimal("5"));
+        pending.setId(bookingId);
+
+        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(pending));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
+
+        Booking approved = service.reviewApprovalDecision("lhc@iitk.ac.in", bookingId, true);
+
+        assertEquals(BookingStatus.CONFIRMED, approved.getStatus());
+    }
+
+    @Test
+    void pendingApprovalQueueOrdersByBookingDateAscending() {
+        LabResource lectureHall = mock(LabResource.class);
+        when(lectureHall.getType()).thenReturn("Lecture Hall");
+
+        Booking later = new Booking("member2@iitk.ac.in", lectureHall,
+                LocalDateTime.now().plusDays(4), LocalDateTime.now().plusDays(4).plusHours(1),
+                BookingStatus.PENDING_APPROVAL, new BigDecimal("6"));
+        Booking earlier = new Booking("member1@iitk.ac.in", lectureHall,
+                LocalDateTime.now().plusDays(2), LocalDateTime.now().plusDays(2).plusHours(1),
+                BookingStatus.PENDING_APPROVAL, new BigDecimal("5"));
+
+        when(bookingRepository.findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL))
+                .thenReturn(java.util.List.of(later, earlier));
+
+        var pending = service.pendingApprovalsForAdmin("lhc@iitk.ac.in", "Lecture Hall");
+
+        assertEquals(2, pending.size());
+        assertEquals(earlier.getStartTime(), pending.get(0).getStartTime());
+        assertEquals(later.getStartTime(), pending.get(1).getStartTime());
+    }
+
+    @Test
+    void pendingApprovalQueueOrdersSameResourceAndSlotBySubmissionTime() {
+        LabResource lectureHall = mock(LabResource.class);
+        when(lectureHall.getId()).thenReturn(UUID.randomUUID());
+        when(lectureHall.getType()).thenReturn("Lecture Hall");
+
+        LocalDateTime slotStart = LocalDateTime.now().plusDays(2).withHour(10).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime slotEnd = slotStart.plusHours(1);
+
+        Booking laterSubmission = new Booking("member2@iitk.ac.in", lectureHall,
+                slotStart, slotEnd, BookingStatus.PENDING_APPROVAL, new BigDecimal("6"));
+        laterSubmission.setCreatedAt(slotStart.minusHours(2));
+
+        Booking earlierSubmission = new Booking("member1@iitk.ac.in", lectureHall,
+                slotStart, slotEnd, BookingStatus.PENDING_APPROVAL, new BigDecimal("5"));
+        earlierSubmission.setCreatedAt(slotStart.minusHours(4));
+
+        when(bookingRepository.findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL))
+                .thenReturn(java.util.List.of(laterSubmission, earlierSubmission));
+
+        var pending = service.pendingApprovalsForAdmin("lhc@iitk.ac.in", "Lecture Hall");
+
+        assertEquals(2, pending.size());
+        assertEquals(earlierSubmission.getCreatedAt(), pending.get(0).getCreatedAt());
+        assertEquals(laterSubmission.getCreatedAt(), pending.get(1).getCreatedAt());
+    }
+
+    @Test
     void partialOverlapWithBookedSlotIsRejectedAsSlotConflict() {
         when(resourceRepository.findById(resourceId)).thenReturn(Optional.of(resource));
         var start = LocalDateTime.now().plusDays(1);
