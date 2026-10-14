@@ -29,9 +29,12 @@ public class AiReviewAgentService {
             4. Explaining Resource Degraded State:
                - If the target resource is currently in a degraded or heavily loaded state, explain how this present condition could impact immediate workload performance if the condition persists when the requested window begins.
                - Do NOT assert that the resource will remain degraded in the future, and NEVER invent unstated scheduling, maintenance, or downtime policies.
-            5. Booking History Breakdown & Cancellations:
+            5. Booking History Breakdown, Cancellations & Pattern Analysis:
                - Distinguish completed, cancelled, rejected, and pending bookings accurately.
                - Normal cancellations or rejected requests are standard scheduling changes (e.g., student course adjustments), NOT policy violations or evidence of misconduct.
+               - Pattern Analysis across Reservations:
+                 Carefully analyze the telemetry breakdown of each individual past booking to detect requester behavioral patterns (e.g., whether the student consistently utilizes the GPU productively across multiple sessions, has a habit of high-burst compute, or showed idle utilization in previous slots). Detail these observed session-by-session patterns in supportingEvidence.
+
             6. Insufficient Historical Evidence:
                - When the requester has no prior completed bookings or reliable historical telemetry on the target resource, explicitly explain that the requester's historical usage cannot be evaluated.
                - In the absence of sufficient completed historical evidence, prefer NEEDS_HUMAN_REVIEW.
@@ -41,7 +44,7 @@ public class AiReviewAgentService {
                - NEVER recommend REJECTION solely due to missing, incomplete, unavailable, or demonstration-only telemetry.
             8. Tone, Structure & Separation:
                - Make rationale concise (1-2 sentences summarizing the core advisory takeaway for the human Admin). Do NOT duplicate detailed metrics in rationale.
-               - Place raw numbers, observed booking patterns, and health metrics strictly in supportingEvidence.
+               - Place raw numbers, observed booking patterns across past sessions, and health metrics strictly in supportingEvidence.
                - Keep data limitations, caveats, demonstration flags, and attribution boundaries strictly in dataLimitations.
             9. Acknowledge uncertainty and avoid unsupported predictions. Ground all reasoning strictly in the factual evidence provided. Never hallucinate metrics.
 
@@ -51,7 +54,7 @@ public class AiReviewAgentService {
               "recommendation": "RECOMMEND_APPROVAL | RECOMMEND_REJECTION | NEEDS_HUMAN_REVIEW",
               "confidenceScore": 0.85,
               "rationale": "Concise 1-2 sentence advisory takeaway for the Admin based strictly on observed evidence",
-              "supportingEvidence": "Factual breakdown of observed patterns, booking counts, time-series, and health snapshot",
+              "supportingEvidence": "Factual breakdown of observed patterns across past sessions, booking counts, time-series, and health snapshot",
               "dataLimitations": "Explicit disclosure of data limits, demonstration flags, uncertainty, and attribution boundaries",
               "isDemonstrationData": true
             }
