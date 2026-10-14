@@ -4,13 +4,44 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-public record BookingResponse(UUID id, UUID resourceId, String resourceName, LocalDateTime startTime, LocalDateTime endTime,
-                              BookingStatus status, BigDecimal creditCost, Boolean clashes, UUID memberId) {
+public record BookingResponse(
+        UUID id,
+        UUID resourceId,
+        String resourceName,
+        LocalDateTime startTime,
+        LocalDateTime endTime,
+        BookingStatus status,
+        BigDecimal creditCost,
+        Boolean clashes,
+        UUID memberId,
+        Boolean waitlist,
+        Long queuePosition,
+        BigDecimal memberBalance
+) {
+    public BookingResponse(UUID id, UUID resourceId, String resourceName, LocalDateTime startTime, LocalDateTime endTime,
+                           BookingStatus status, BigDecimal creditCost, Boolean clashes, UUID memberId) {
+        this(id, resourceId, resourceName, startTime, endTime, status, creditCost, clashes, memberId, false, null, null);
+    }
+
+    public BookingResponse(UUID id, UUID resourceId, String resourceName, LocalDateTime startTime, LocalDateTime endTime,
+                           BookingStatus status, BigDecimal creditCost, Boolean clashes, UUID memberId,
+                           Boolean waitlist, Long queuePosition) {
+        this(id, resourceId, resourceName, startTime, endTime, status, creditCost, clashes, memberId, waitlist, queuePosition, null);
+    }
+
     public static BookingResponse from(Booking booking) {
-        return from(booking, false);
+        return from(booking, false, false, null, null);
     }
 
     public static BookingResponse from(Booking booking, boolean clashes) {
+        return from(booking, clashes, clashes, null, null);
+    }
+
+    public static BookingResponse from(Booking booking, boolean clashes, boolean waitlist, Long queuePosition) {
+        return from(booking, clashes, waitlist, queuePosition, null);
+    }
+
+    public static BookingResponse from(Booking booking, boolean clashes, boolean waitlist, Long queuePosition, BigDecimal memberBalance) {
         String resourceName = null;
         UUID resourceId = null;
         if (booking.getResource() != null) {
@@ -29,6 +60,9 @@ public record BookingResponse(UUID id, UUID resourceId, String resourceName, Loc
                 booking.getStatus(),
                 booking.getCreditCost(),
                 clashes,
-                booking.getMemberId());
+                booking.getMemberId(),
+                waitlist,
+                queuePosition,
+                memberBalance);
     }
 }

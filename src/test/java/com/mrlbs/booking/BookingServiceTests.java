@@ -19,6 +19,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -192,7 +193,7 @@ class BookingServiceTests {
         when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
 
         CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("100"));
-        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+        lenient().when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
 
         Booking booking = service.submit("member@iitk.ac.in", new BookingRequest(resourceId, start, start.plusHours(1)));
 
@@ -383,7 +384,7 @@ class BookingServiceTests {
         when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("10"));
-        when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
+        lenient().when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
 
         Booking confirmed = service.confirmDraft("member@iitk.ac.in", draftId);
 
@@ -405,13 +406,15 @@ class BookingServiceTests {
                 .thenReturn(java.util.List.of(existingBooking));
         when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("10"));
+        CreditAccount account = new CreditAccount("member@iitk.ac.in", new BigDecimal("100"));
         when(creditAccountRepository.findForUpdate("member@iitk.ac.in")).thenReturn(Optional.of(account));
 
         Booking confirmed = service.confirmDraft("member@iitk.ac.in", draftId);
 
         assertEquals(draftId, confirmed.getId());
         assertEquals(BookingStatus.IN_PROGRESS, confirmed.getStatus());
+        assertTrue(confirmed.getCreditCost().compareTo(BigDecimal.ZERO) > 0);
+        verify(creditAccountRepository, org.mockito.Mockito.atLeastOnce()).findForUpdate(any());
     }
 
     @Test

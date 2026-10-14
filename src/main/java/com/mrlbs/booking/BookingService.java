@@ -35,16 +35,45 @@ public class BookingService {
     private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     private final MemberRepository memberRepository;
+    private final com.mrlbs.waitlist.WaitlistEntryRepository waitlistRepository;
+    private final com.mrlbs.waitlist.WaitlistAllocationService waitlistAllocationService;
+    private final com.mrlbs.waitlist.WaitlistOfferService waitlistOfferService;
+    private final com.mrlbs.waitlist.WaitlistService waitlistService;
 
     public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
                           CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator) {
-        this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, null, null);
+        this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, null, null, null, null, null, null);
     }
 
     public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
                           CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator,
                           MemberRepository memberRepository) {
-        this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, null, memberRepository);
+        this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, null, memberRepository, null, null, null, null);
+    }
+
+    public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
+                          CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator,
+                          org.springframework.transaction.PlatformTransactionManager transactionManager,
+                          MemberRepository memberRepository) {
+        this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, transactionManager, memberRepository, null, null, null, null);
+    }
+
+    public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
+                          CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator,
+                          org.springframework.transaction.PlatformTransactionManager transactionManager,
+                          MemberRepository memberRepository,
+                          com.mrlbs.waitlist.WaitlistEntryRepository waitlistRepository) {
+        this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, transactionManager, memberRepository, waitlistRepository, null, null, null);
+    }
+
+    public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
+                          CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator,
+                          org.springframework.transaction.PlatformTransactionManager transactionManager,
+                          MemberRepository memberRepository,
+                          com.mrlbs.waitlist.WaitlistEntryRepository waitlistRepository,
+                          com.mrlbs.waitlist.WaitlistAllocationService waitlistAllocationService,
+                          com.mrlbs.waitlist.WaitlistOfferService waitlistOfferService) {
+        this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, transactionManager, memberRepository, waitlistRepository, waitlistAllocationService, waitlistOfferService, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -52,13 +81,53 @@ public class BookingService {
                           CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator,
                           @org.springframework.beans.factory.annotation.Autowired(required = false)
                           org.springframework.transaction.PlatformTransactionManager transactionManager,
-                          MemberRepository memberRepository) {
+                          MemberRepository memberRepository,
+                          @org.springframework.beans.factory.annotation.Autowired(required = false)
+                          com.mrlbs.waitlist.WaitlistEntryRepository waitlistRepository,
+                          @org.springframework.beans.factory.annotation.Autowired(required = false)
+                          com.mrlbs.waitlist.WaitlistAllocationService waitlistAllocationService,
+                          @org.springframework.beans.factory.annotation.Autowired(required = false)
+                          com.mrlbs.waitlist.WaitlistOfferService waitlistOfferService,
+                          @org.springframework.beans.factory.annotation.Autowired(required = false)
+                          com.mrlbs.waitlist.WaitlistService waitlistService) {
         this.bookingRepository = bookingRepository;
         this.resourceRepository = resourceRepository;
         this.creditAccountRepository = creditAccountRepository;
         this.priceCalculator = priceCalculator;
         this.transactionManager = transactionManager;
         this.memberRepository = memberRepository;
+        this.waitlistRepository = waitlistRepository;
+        this.waitlistAllocationService = waitlistAllocationService;
+        this.waitlistOfferService = waitlistOfferService;
+        this.waitlistService = waitlistService;
+    }
+
+    public BigDecimal getMemberBalance(String email) {
+        if (email == null || creditAccountRepository == null) {
+            return BigDecimal.ZERO;
+        }
+        return creditAccountRepository.findById(email)
+                .map(CreditAccount::getBalance)
+                .orElse(BigDecimal.ZERO);
+    }
+
+    public long calculateNextQueueNumber(UUID resourceId, LocalDateTime start, LocalDateTime end) {
+        if (waitlistService != null) {
+            return waitlistService.getNextQueuePosition(resourceId, start, end);
+        }
+        if (waitlistRepository != null && resourceId != null) {
+            List<com.mrlbs.waitlist.WaitlistEntry> active = waitlistRepository.findActiveQueue(resourceId, start, end);
+            return (active != null ? active.size() : 0) + 1L;
+        }
+        return 1L;
+    }
+
+    public BigDecimal calculateWaitlistContention(LabResource resource, long queueNumber) {
+        BigDecimal base = BigDecimal.ONE.add(new BigDecimal("0.1").multiply(BigDecimal.valueOf(queueNumber)));
+        BigDecimal max = (resource != null && resource.getMaximumContentionMultiplier() != null)
+                ? resource.getMaximumContentionMultiplier()
+                : new BigDecimal("3.00");
+        return base.min(max);
     }
 
 
@@ -81,7 +150,23 @@ public class BookingService {
                     "This time window clashes with an already booked slot. Please select the exact slot to go to waitlist or choose a different time.");
         }
 
+        if (conflict == BookingConflictType.EXACT_MATCH && waitlistRepository != null) {
+            Booking parentBooking = findParentBooking(overlapping, start, end);
+            LocalDateTime wlStart = parentBooking != null ? parentBooking.getStartTime() : start;
+            LocalDateTime wlEnd = parentBooking != null ? parentBooking.getEndTime() : end;
+            boolean alreadyWaiting = waitlistRepository.existsActiveWaitlist(
+                    memberId, resource.getId(), wlStart, wlEnd);
+            if (alreadyWaiting) {
+                throw new BookingRejectedException(BookingRejectionReason.DUPLICATE_WAITLIST,
+                        "You already have an active waitlist request for this resource and time slot.");
+            }
+        }
+
         BigDecimal contention = BigDecimal.valueOf(1 + (overlapping != null ? overlapping.size() : 0));
+        if (conflict == BookingConflictType.EXACT_MATCH) {
+            long queueNumber = calculateNextQueueNumber(resource.getId(), start, end);
+            contention = calculateWaitlistContention(resource, queueNumber);
+        }
         Duration duration = Duration.between(start, end);
         var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, contention,
                 new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
@@ -108,7 +193,11 @@ public class BookingService {
             throw new IllegalStateException("Booking is not in draft status.");
         }
 
-        LabResource resource = booking.getResource();
+        LabResource resource = getResourceForUpdate(booking.getResource() != null ? booking.getResource().getId() : null, booking.getResource());
+        if (resource == null) {
+            throw new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
+                    "The requested resource is not available.");
+        }
         LocalDateTime start = booking.getStartTime();
         LocalDateTime end = booking.getEndTime();
 
@@ -121,6 +210,57 @@ public class BookingService {
             if (conflict == BookingConflictType.PARTIAL_CONFLICT) {
                 throw new BookingRejectedException(BookingRejectionReason.SLOT_CONFLICT,
                         "This time window clashes with an already booked slot. Please select the exact slot to go to waitlist or choose a different time.");
+            }
+
+            if (conflict == BookingConflictType.EXACT_MATCH) {
+                Booking parentBooking = findParentBooking(overlapping, start, end);
+                LocalDateTime wlStart = parentBooking != null ? parentBooking.getStartTime() : start;
+                LocalDateTime wlEnd = parentBooking != null ? parentBooking.getEndTime() : end;
+
+                if (waitlistRepository != null) {
+                    boolean alreadyWaiting = waitlistRepository.existsActiveWaitlist(
+                            memberId, resource.getId(), wlStart, wlEnd);
+                    if (alreadyWaiting) {
+                        throw new BookingRejectedException(BookingRejectionReason.DUPLICATE_WAITLIST,
+                                "You already have an active waitlist request for this resource and time slot.");
+                    }
+                }
+
+                long queueNumber = calculateNextQueueNumber(resource.getId(), start, end);
+                BigDecimal contention = calculateWaitlistContention(resource, queueNumber);
+                Duration duration = Duration.between(start, end);
+                var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, contention,
+                        new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
+
+                // Deduct credits from member balance when booking state is IN_PROGRESS
+                CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
+                if (account == null || account.getBalance().compareTo(quote.totalCredits()) < 0) {
+                    throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
+                            "The member does not have enough credits for this booking.");
+                }
+
+                account.debit(quote.totalCredits());
+                creditAccountRepository.save(account);
+
+                booking.setCreditCost(quote.totalCredits());
+                booking.setStatus(BookingStatus.IN_PROGRESS);
+                Booking savedBooking = bookingRepository.save(booking);
+
+                if (waitlistRepository != null) {
+                    com.mrlbs.waitlist.WaitlistEntry entry = new com.mrlbs.waitlist.WaitlistEntry(
+                            memberId,
+                            resource,
+                            start,
+                            end,
+                            BookingStatus.IN_PROGRESS,
+                            savedBooking.getId(),
+                            quote.totalCredits(),
+                            quote.appliedContentionMultiplier()
+                    );
+                    waitlistRepository.save(entry);
+                }
+
+                return savedBooking;
             }
 
             BigDecimal contention = BigDecimal.valueOf(1 + (overlapping != null ? overlapping.size() : 0));
@@ -170,7 +310,13 @@ public class BookingService {
     public Booking deleteBooking(String ownerEmail, UUID bookingId) {
         UUID memberId = resolveMemberId(ownerEmail);
         validateIdentity(ownerEmail);
-        Booking booking = bookingRepository.findById(bookingId).orElse(null);
+        Booking booking = null;
+        try {
+            booking = bookingRepository.findByIdForUpdate(bookingId)
+                    .orElseGet(() -> bookingRepository.findById(bookingId).orElse(null));
+        } catch (Exception e) {
+            booking = bookingRepository.findById(bookingId).orElse(null);
+        }
         if (booking == null) {
             return null;
         }
@@ -181,11 +327,18 @@ public class BookingService {
         if (booking.getStatus() == BookingStatus.CANCELLED) {
             return booking;
         }
-        // If credits were already debited for a confirmed/in_progress/pending booking, refund them
-        if (booking.getStatus() == BookingStatus.IN_PROGRESS || booking.getStatus() == BookingStatus.PENDING || booking.getStatus() == BookingStatus.CONFIRMED || booking.getStatus() == BookingStatus.PENDING_APPROVAL) {
-            if (booking.getCreditCost() != null && booking.getCreditCost().signum() > 0) {
+        boolean wasConfirmedOrApproved = booking.getStatus() == BookingStatus.CONFIRMED
+                || booking.getStatus() == BookingStatus.PENDING_APPROVAL
+                || booking.getStatus() == BookingStatus.PENDING;
+        boolean wasDebitEligible = wasConfirmedOrApproved
+                || booking.getStatus() == BookingStatus.IN_PROGRESS;
+
+        // If credits were already debited for a confirmed, pending, or IN_PROGRESS booking, refund them
+        if (wasDebitEligible) {
+            BigDecimal refundCost = booking.getCreditCost();
+            if (refundCost != null && refundCost.signum() > 0) {
                 creditAccountRepository.findForUpdate(ownerEmail).ifPresent(account -> {
-                    account.credit(booking.getCreditCost());
+                    account.credit(refundCost);
                     creditAccountRepository.save(account);
                 });
             }
@@ -199,7 +352,35 @@ public class BookingService {
         // Active booking: persist in DB with CANCELLED status and set cancelled timestamp
         booking.setStatus(BookingStatus.CANCELLED);
         booking.setCancelledAt(LocalDateTime.now());
-        return bookingRepository.save(booking);
+        Booking saved = bookingRepository.save(booking);
+
+        if (waitlistRepository != null) {
+            waitlistRepository.findByBookingId(booking.getId()).ifPresent(entry -> {
+                if (entry.getStatus() == BookingStatus.IN_PROGRESS) {
+                    entry.setStatus(BookingStatus.CANCELLED);
+                    entry.setLeftAt(LocalDateTime.now());
+                    waitlistRepository.save(entry);
+                }
+            });
+        }
+
+        if (wasConfirmedOrApproved && saved.getResource() != null) {
+            if (waitlistOfferService != null && waitlistOfferService.isOfferModeEnabled()) {
+                waitlistOfferService.processReleasedSlotForOffer(
+                        saved.getResource().getId(),
+                        saved.getStartTime(),
+                        saved.getEndTime()
+                );
+            } else if (waitlistAllocationService != null) {
+                waitlistAllocationService.processReleasedSlot(
+                        saved.getResource().getId(),
+                        saved.getStartTime(),
+                        saved.getEndTime()
+                );
+            }
+        }
+
+        return saved;
     }
 
 
@@ -211,7 +392,11 @@ public class BookingService {
         UUID memberId = resolveMemberId(ownerEmail);
         validateIdentity(ownerEmail);
         validateTimeWindow(request);
-        LabResource resource = getResource(request.resourceId());
+        LabResource resource = getResourceForUpdate(request.resourceId(), null);
+        if (resource == null) {
+            throw new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
+                    "The requested resource is not available.");
+        }
         LocalDateTime start = request.startTime();
         LocalDateTime end = request.endTime();
 
@@ -223,6 +408,58 @@ public class BookingService {
         if (conflict == BookingConflictType.PARTIAL_CONFLICT) {
             throw new BookingRejectedException(BookingRejectionReason.SLOT_CONFLICT,
                     "This time window clashes with an already booked slot. Please select the exact slot to go to waitlist or choose a different time.");
+        }
+
+        if (conflict == BookingConflictType.EXACT_MATCH) {
+            Booking parentBooking = findParentBooking(overlapping, start, end);
+            LocalDateTime wlStart = parentBooking != null ? parentBooking.getStartTime() : start;
+            LocalDateTime wlEnd = parentBooking != null ? parentBooking.getEndTime() : end;
+
+            if (waitlistRepository != null) {
+                boolean alreadyWaiting = waitlistRepository.existsActiveWaitlist(
+                        memberId, resource.getId(), wlStart, wlEnd);
+                if (alreadyWaiting) {
+                    throw new BookingRejectedException(BookingRejectionReason.DUPLICATE_WAITLIST,
+                            "You already have an active waitlist request for this resource and time slot.");
+                }
+            }
+
+            long queueNumber = calculateNextQueueNumber(resource.getId(), start, end);
+            BigDecimal contention = calculateWaitlistContention(resource, queueNumber);
+            Duration duration = Duration.between(start, end);
+            var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, contention,
+                    new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
+
+            CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
+            if (account == null || account.getBalance().compareTo(quote.totalCredits()) < 0) {
+                throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
+                        "The member does not have enough credits for this booking.");
+            }
+
+            account.debit(quote.totalCredits());
+            creditAccountRepository.save(account);
+
+            Booking booking = new Booking(ownerEmail, resource, start, end,
+                    BookingStatus.IN_PROGRESS,
+                    quote.totalCredits());
+            booking.setMemberId(memberId);
+            Booking saved = bookingRepository.save(booking);
+
+            if (waitlistRepository != null) {
+                com.mrlbs.waitlist.WaitlistEntry entry = new com.mrlbs.waitlist.WaitlistEntry(
+                        memberId,
+                        resource,
+                        start,
+                        end,
+                        BookingStatus.IN_PROGRESS,
+                        saved.getId(),
+                        quote.totalCredits(),
+                        quote.appliedContentionMultiplier()
+                );
+                waitlistRepository.save(entry);
+            }
+
+            return saved;
         }
 
         BigDecimal contention = BigDecimal.valueOf(1 + (overlapping != null ? overlapping.size() : 0));
@@ -294,12 +531,26 @@ public class BookingService {
                     "This admin cannot review bookings for the selected resource type.");
         }
 
+        boolean wasWaitlisted = waitlistRepository != null && waitlistRepository.findByBookingId(booking.getId()).isPresent();
+
         if (approved) {
+            if (wasWaitlisted && booking.getCreditCost() != null && booking.getCreditCost().signum() > 0) {
+                String memberEmail = resolveOwnerEmail(booking);
+                if (memberEmail != null && !memberEmail.isBlank()) {
+                    CreditAccount account = creditAccountRepository.findForUpdate(memberEmail).orElse(null);
+                    if (account == null || account.getBalance().compareTo(booking.getCreditCost()) < 0) {
+                        throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
+                                "The member does not have enough credits to confirm this booking.");
+                    }
+                    account.debit(booking.getCreditCost());
+                    creditAccountRepository.save(account);
+                }
+            }
             booking.setStatus(BookingStatus.CONFIRMED);
             return bookingRepository.save(booking);
         }
 
-        if (booking.getCreditCost() != null && booking.getCreditCost().signum() > 0) {
+        if (!wasWaitlisted && booking.getCreditCost() != null && booking.getCreditCost().signum() > 0) {
             String memberEmail = resolveOwnerEmail(booking);
             if (memberEmail != null && !memberEmail.isBlank()) {
                 CreditAccount account = creditAccountRepository.findForUpdate(memberEmail).orElse(null);
@@ -312,7 +563,25 @@ public class BookingService {
 
         booking.setStatus(BookingStatus.REJECTED);
         booking.setCancelledAt(LocalDateTime.now());
-        return bookingRepository.save(booking);
+        Booking saved = bookingRepository.save(booking);
+
+        if (saved.getResource() != null) {
+            if (waitlistOfferService != null && waitlistOfferService.isOfferModeEnabled()) {
+                waitlistOfferService.processReleasedSlotForOffer(
+                        saved.getResource().getId(),
+                        saved.getStartTime(),
+                        saved.getEndTime()
+                );
+            } else if (waitlistAllocationService != null) {
+                waitlistAllocationService.processReleasedSlot(
+                        saved.getResource().getId(),
+                        saved.getStartTime(),
+                        saved.getEndTime()
+                );
+            }
+        }
+
+        return saved;
     }
 
     public String resolveMemberEmail(Booking booking) {
@@ -353,6 +622,19 @@ public class BookingService {
         return resourceRepository.findById(resourceId).orElseThrow(() ->
                 new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
                         "The requested resource is not available."));
+    }
+
+    private LabResource getResourceForUpdate(UUID resourceId, LabResource fallback) {
+        if (resourceRepository == null) {
+            return fallback;
+        }
+        try {
+            return resourceRepository.findByIdForUpdate(resourceId)
+                    .or(() -> resourceRepository.findById(resourceId))
+                    .orElse(fallback);
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 
     private void validateDuration(LabResource resource, LocalDateTime start, LocalDateTime end) {
@@ -426,6 +708,18 @@ public class BookingService {
         return checkBufferViolation(resource, start, end, relevantOverlaps, currentBooking)
                 ? BookingConflictType.PARTIAL_CONFLICT
                 : BookingConflictType.NONE;
+    }
+
+    private Booking findParentBooking(List<Booking> overlapping, LocalDateTime start, LocalDateTime end) {
+        if (overlapping == null || overlapping.isEmpty()) {
+            return null;
+        }
+        return overlapping.stream()
+                .filter(b -> b != null && b.getStartTime() != null && b.getEndTime() != null
+                        && b.getStatus() == BookingStatus.CONFIRMED
+                        && !start.isBefore(b.getStartTime()) && !end.isAfter(b.getEndTime()))
+                .findFirst()
+                .orElse(null);
     }
 
     private List<Booking> filterOutCurrentBooking(Booking currentBooking, List<Booking> bookings) {
