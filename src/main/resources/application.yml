@@ -14,6 +14,14 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+  rabbitmq:
+    addresses: ${SPRING_RABBITMQ_ADDRESSES:}
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:guest}
+    password: ${SPRING_RABBITMQ_PASSWORD:guest}
+    publisher-confirm-type: correlated
+    publisher-returns: true
   security:
     oauth2:
       client:
@@ -56,4 +64,7 @@ mrlbs:
       base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
   mail:
     from: ${MAIL_FROM:noreply@iitk.ac.in}
+  telemetry:
+    service-url: ${TELEMETRY_SERVICE_URL:http://localhost:8085}
+    timeout-ms: ${TELEMETRY_TIMEOUT_MS:3000}
 

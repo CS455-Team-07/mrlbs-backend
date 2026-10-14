@@ -23,9 +23,21 @@ public class BookingController {
     private final BookingService bookingService;
     private final com.mrlbs.waitlist.WaitlistService waitlistService;
     private final com.mrlbs.waitlist.WaitlistEntryRepository waitlistEntryRepository;
+    private final com.mrlbs.ai.review.BookingAiReviewRepository reviewRepository;
 
-    public BookingController(BookingService bookingService) {
-        this(bookingService, null, null);
+   public BookingController(BookingService bookingService) {
+        this(bookingService, null, null, null);
+    }
+
+    public BookingController(BookingService bookingService,
+                             com.mrlbs.ai.review.BookingAiReviewRepository reviewRepository) {
+        this(bookingService, null, null, reviewRepository);
+    }
+
+    public BookingController(BookingService bookingService,
+                             com.mrlbs.waitlist.WaitlistService waitlistService,
+                             com.mrlbs.waitlist.WaitlistEntryRepository waitlistEntryRepository) {
+        this(bookingService, waitlistService, waitlistEntryRepository, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -33,15 +45,19 @@ public class BookingController {
                              @org.springframework.beans.factory.annotation.Autowired(required = false)
                              com.mrlbs.waitlist.WaitlistService waitlistService,
                              @org.springframework.beans.factory.annotation.Autowired(required = false)
-                             com.mrlbs.waitlist.WaitlistEntryRepository waitlistEntryRepository) {
+                             com.mrlbs.waitlist.WaitlistEntryRepository waitlistEntryRepository,
+                             @org.springframework.beans.factory.annotation.Autowired(required = false)
+                             com.mrlbs.ai.review.BookingAiReviewRepository reviewRepository) {
         this.bookingService = bookingService;
         this.waitlistService = waitlistService;
         this.waitlistEntryRepository = waitlistEntryRepository;
+        this.reviewRepository = reviewRepository;
     }
 
     public record ApprovalRequestResponse(UUID id, String memberEmail, String resourceName, String resourceType,
-                                         LocalDateTime startTime, LocalDateTime endTime, BookingStatus status) {
-        public static ApprovalRequestResponse from(Booking booking, String memberEmail) {
+                                          LocalDateTime startTime, LocalDateTime endTime, BookingStatus status,
+                                          com.mrlbs.ai.review.AiReviewSummaryResponse aiReview) {
+        public static ApprovalRequestResponse from(Booking booking, String memberEmail, com.mrlbs.ai.review.AiReviewSummaryResponse aiReview) {
             String resourceName = booking.getResource() != null ? booking.getResource().getName() : "Archived Resource";
             String resourceType = booking.getResource() != null ? booking.getResource().getType() : "Unknown";
             return new ApprovalRequestResponse(
@@ -51,7 +67,12 @@ public class BookingController {
                     resourceType,
                     booking.getStartTime(),
                     booking.getEndTime(),
-                    booking.getStatus());
+                    booking.getStatus(),
+                    aiReview);
+        }
+
+        public static ApprovalRequestResponse from(Booking booking, String memberEmail) {
+            return from(booking, memberEmail, null);
         }
     }
 
@@ -169,9 +190,34 @@ public class BookingController {
     public List<ApprovalRequestResponse> approvals(@AuthenticationPrincipal OidcUser user) {
         String email = user.getEmail();
         String scope = com.mrlbs.security.AdminResourceScope.scopeForEmail(email).orElse(null);
-        return bookingService.pendingApprovalsForAdmin(email, scope).stream()
-                .map(booking -> ApprovalRequestResponse.from(booking, resolveMemberEmail(booking)))
+        List<Booking> pending = bookingService.pendingApprovalsForAdmin(email, scope);
+
+        List<UUID> bookingIds = pending.stream().map(Booking::getId).toList();
+        java.util.Map<UUID, com.mrlbs.ai.review.BookingAiReview> reviewMap = (reviewRepository != null && !bookingIds.isEmpty())
+                ? reviewRepository.findByBookingIdIn(bookingIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(com.mrlbs.ai.review.BookingAiReview::getBookingId, r -> r, (r1, r2) -> r1))
+                : java.util.Map.of();
+
+        return pending.stream()
+                .map(booking -> ApprovalRequestResponse.from(
+                        booking,
+                        resolveMemberEmail(booking),
+                        com.mrlbs.ai.review.AiReviewSummaryResponse.from(reviewMap.get(booking.getId()))
+                ))
                 .toList();
+    }
+
+    @GetMapping("/{id}/ai-review")
+    @PreAuthorize("hasRole('ADMIN')")
+    public org.springframework.http.ResponseEntity<com.mrlbs.ai.review.AiReviewSummaryResponse> getBookingAiReview(
+            @org.springframework.web.bind.annotation.PathVariable UUID id) {
+        if (reviewRepository == null) {
+            return org.springframework.http.ResponseEntity.notFound().build();
+        }
+        return reviewRepository.findByBookingId(id)
+                .map(com.mrlbs.ai.review.AiReviewSummaryResponse::from)
+                .map(org.springframework.http.ResponseEntity::ok)
+                .orElse(org.springframework.http.ResponseEntity.notFound().build());
     }
 
     @PostMapping("/{id}/approve")

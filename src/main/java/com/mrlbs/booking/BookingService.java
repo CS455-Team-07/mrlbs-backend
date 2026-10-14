@@ -40,6 +40,13 @@ public class BookingService {
     private final com.mrlbs.waitlist.WaitlistOfferService waitlistOfferService;
     private final com.mrlbs.waitlist.WaitlistService waitlistService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.mrlbs.ai.review.BookingEventPublisher eventPublisher;
+
+    public void setEventPublisher(com.mrlbs.ai.review.BookingEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
+    }
+
     public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
                           CreditAccountRepository creditAccountRepository, BookingPriceCalculator priceCalculator) {
         this(bookingRepository, resourceRepository, creditAccountRepository, priceCalculator, null, null, null, null, null, null);
@@ -279,7 +286,9 @@ public class BookingService {
             creditAccountRepository.save(account);
 
             booking.setStatus(resolveBookingStatus(resource, conflict));
-            return bookingRepository.save(booking);
+            Booking saved = bookingRepository.save(booking);
+            dispatchPendingApprovalIfApplicable(saved);
+            return saved;
         } catch (RuntimeException e) {
             // If it didn't meet criteria, delete the draft from the database
             deleteDraftSafely(booking.getId());
@@ -480,7 +489,41 @@ public class BookingService {
         Booking saved = bookingRepository.save(booking);
         account.debit(quote.totalCredits());
         creditAccountRepository.save(account);
+        dispatchPendingApprovalIfApplicable(saved);
         return saved;
+    }
+
+    private void dispatchPendingApprovalIfApplicable(Booking booking) {
+        if (booking != null && booking.getStatus() == BookingStatus.PENDING_APPROVAL && eventPublisher != null) {
+            try {
+                com.mrlbs.ai.review.BookingReviewEvent event = new com.mrlbs.ai.review.BookingReviewEvent(
+                        booking.getId(),
+                        booking.getMemberId(),
+                        booking.getResource() != null ? booking.getResource().getId() : null,
+                        booking.getResource() != null ? booking.getResource().getName() : "Unknown",
+                        booking.getResource() != null ? booking.getResource().getType() : "Unknown",
+                        booking.getStartTime(),
+                        booking.getEndTime()
+                );
+                com.mrlbs.ai.review.BookingOutboxEvent outboxEvent = eventPublisher.stagePendingApprovalEvent(event);
+                if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+                    org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                            new org.springframework.transaction.support.TransactionSynchronization() {
+                                @Override
+                                public void afterCommit() {
+                                    eventPublisher.publishEventWithConfirm(outboxEvent);
+                                }
+                            }
+                    );
+                } else {
+                    eventPublisher.publishEventWithConfirm(outboxEvent);
+                }
+            } catch (Exception e) {
+                org.slf4j.LoggerFactory.getLogger(BookingService.class).warn(
+                        "Could not dispatch review event for pending approval booking {}: {}",
+                        booking.getId(), e.getMessage());
+            }
+        }
     }
 
     private BookingStatus resolveBookingStatus(LabResource resource, BookingConflictType conflict) {
