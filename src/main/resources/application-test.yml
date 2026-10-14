@@ -23,3 +23,5 @@ spring:
 mrlbs:
   auth:
     enabled: true
+  rabbitmq:
+    auto-startup: false
