@@ -58,6 +58,10 @@ The local defaults expect PostgreSQL on `localhost:5432`, database `mrlbs`, and 
 | `INSTITUTIONAL_DOMAIN` | `iitk.ac.in` | Required Google Workspace hosted domain |
 | `DEV_ALLOW_ANY_GOOGLE_DOMAIN` | `false` | Local development only: accept a verified Google identity without the institutional hosted-domain claim when the `dev` profile is active |
 | `FRONTEND_BASE_URL` | `http://localhost:5173` | Frontend URL for returning after OAuth login |
+| `SPRING_RABBITMQ_ADDRESSES` | `amqps://...` | AMQP/AMQPS broker URI for asynchronous review queueing |
+| `GEMINI_API_KEY` | empty | Google Gemini API key for structured AI review agent evaluation |
+| `GEMINI_MODEL` | `gemini-2.0-flash` | Gemini model name for review evaluation |
+| `TELEMETRY_SERVICE_BASE_URL` | `http://localhost:8085` | Base URL of the standalone hardware Resource Telemetry Service |
 
 The demo identity has administrator access and is suitable only for a controlled project demo. Do not expose the default no-auth configuration publicly. For production, set `AUTH_ENABLED=true`, register the HTTPS backend callback URI with Google, and configure OAuth credentials through the deployment secret manager. The Google authorization request includes the configured `hd` value to guide account selection, while the backend validates the signed ID token claims.
 
@@ -129,9 +133,66 @@ When starting under the `postgres` or `dev` profiles, the application pre-seeds 
 - **GPU Resources:** `GPU-A100-01` (base rate `20` credits/hr) and `GPU-H100-01` (base rate `35` credits/hr) — admin approval required.
 - **Test Accounts:** `member@iitk.ac.in`, `student@iitk.ac.in`, and `admin@iitk.ac.in` seeded with `1,000` credits each for testing dynamic credit pricing and booking submissions.
 
+## AI Request Review Agent (Asynchronous Advisory Pipeline)
+
+The backend incorporates an asynchronous, event-driven AI Request Review Agent to provide purely advisory recommendations for pending lab booking requests on `APPROVAL_REQUIRED` resources (such as high-demand DGX GPUs).
+
+```
+[ Booking Submission ] 
+         │ (Transactional Outbox)
+         ▼
+[ booking_outbox_events ] ──(afterCommit)──> [ RabbitMQ Exchange ]
+                                                    │
+                                                    ▼
+                                           [ Review Queue ]
+                                                    │
+                                                    ▼
+                                    [ BookingAiReviewConsumer ]
+                                      ├── Query Requester Track Record
+                                      ├── Query External Hardware Telemetry
+                                      ├── Evaluate via Gemini LLM
+                                      ▼
+                                    [ booking_ai_reviews ]
+                                                    │ (Advisory Card)
+                                                    ▼
+                                    [ Admin Review Dashboard ]
+                                        ├── Approve (Human Decision)
+                                        └── Reject  (Human Decision)
+```
+
+### Key Architectural Characteristics
+
+1. **Transactional Outbox & Reliable Queueing:**
+   - On booking submission, a pending outbox event is staged in `booking_outbox_events` and committed in the same database transaction as the booking.
+   - Upon transaction commit (`TransactionSynchronizationManager.afterCommit`), the event is dispatched to RabbitMQ with publisher confirms.
+   - Consumers acknowledge messages only after evaluation and persistence are complete. Dead-letter exchanges (DLX) handle poison messages without blocking queue throughput.
+
+2. **Integration with External Hardware Telemetry:**
+   - Resources map to physical hardware identifiers via `resource_telemetry_mappings` (Flyway migration `V8`).
+   - The backend queries the standalone **Resource Telemetry Service** (`http://localhost:8085`) to inspect:
+     - **Present Operating Health Snapshot:** point-in-time operating status, GPU/memory utilization %, temperature, power draw.
+     - **Exact-Interval Historical Telemetry:** hardware metrics captured strictly during eligible completed past reservations.
+
+3. **Strict Non-Punitive & Attribution Boundaries:**
+   - **Device-Level Attribution:** Telemetry measures hardware device metrics during exclusive windows; individual job or user-level attribution is not captured.
+   - **Isolated Present Health:** Present hardware state (e.g. high load or elevated temperature from an ongoing job) is strictly separated from the requester's history and never attributed to the requester without explicit evidence.
+   - **Booking Status Accounting:** All bookings (completed, cancelled, rejected, pending) are accurately distinguished. Standard cancellations or rejections are treated as normal scheduling adjustments, never as misconduct.
+   - **Missing Telemetry Safety:** If historical telemetry is absent or from demonstration fixtures, the agent defaults to `NEEDS_HUMAN_REVIEW` and never rejects solely on missing telemetry.
+   - **Advisory Confidence Score:** The `confidenceScore` (0.1 to 1.0) reflects the agent's confidence in its recommendation based on evidence completeness, not a user risk score.
+
+4. **Human Decision Enforcement:**
+   - The AI Review Agent is **strictly advisory**. The consumer only writes to `booking_ai_reviews`.
+   - The booking remains in `PENDING_APPROVAL` until an authenticated administrator explicitly reviews the advisory card and invokes `POST /api/v1/bookings/{id}/approve` or `POST /api/v1/bookings/{id}/reject`.
+
+5. **Graceful Degradation:**
+   - If RabbitMQ or Gemini is temporarily unreachable, requests automatically transition to `FALLBACK_HUMAN_ONLY` or deterministic rule-based evaluation, allowing human administrators to proceed with approvals immediately without interruption.
+
 ## Current status
 
-Institutional Google OIDC authentication and resource onboarding are implemented. User profile persistence and role assignment, booking, concurrency control, resource listing/editing, notifications, waitlists, pricing, and AI functionality remain future work. No Jira issues have been created or modified.
+- **Authentication:** Institutional Google OIDC and verified hosted-domain checks (`@iitk.ac.in`) with demo administrator mode for local evaluation.
+- **Resource Management:** Admin onboarding, booking rules, capacity management, and hardware telemetry mappings.
+- **Booking Engine:** Slot conflict detection, dynamic credit pricing, reservation windows, waitlist queues, and credit balances.
+- **AI Request Review Agent:** Fully functional asynchronous RabbitMQ outbox pipeline, telemetry client, Gemini LLM evaluation, and advisory Admin dashboard cards.
 
 ## AI Engineering Log
 
