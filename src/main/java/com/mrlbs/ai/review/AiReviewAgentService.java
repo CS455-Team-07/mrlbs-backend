@@ -65,31 +65,112 @@ public class AiReviewAgentService {
 
     private final GeminiClient geminiClient;
     private final ObjectMapper objectMapper;
+    private final com.mrlbs.ai.observability.AiAgentLogger aiLogger;
 
     public AiReviewAgentService(GeminiClient geminiClient, ObjectMapper objectMapper) {
+        this(geminiClient, objectMapper, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AiReviewAgentService(GeminiClient geminiClient, ObjectMapper objectMapper,
+                                @org.springframework.beans.factory.annotation.Autowired(required = false) com.mrlbs.ai.observability.AiAgentLogger aiLogger) {
         this.geminiClient = geminiClient;
         this.objectMapper = objectMapper;
+        this.aiLogger = aiLogger;
     }
 
     public ReviewEvaluationResult evaluateBooking(BookingReviewEvent event, RequesterHistoryProfile profile) {
+        String correlationId = (event != null && event.correlationId() != null)
+                ? event.correlationId()
+                : org.slf4j.MDC.get(com.mrlbs.ai.observability.AiAgentLogger.MDC_CORRELATION_ID);
+        if (correlationId == null || correlationId.isBlank()) {
+            correlationId = java.util.UUID.randomUUID().toString();
+        }
+
+        org.slf4j.MDC.put(com.mrlbs.ai.observability.AiAgentLogger.MDC_CORRELATION_ID, correlationId);
+        org.slf4j.MDC.put(com.mrlbs.ai.observability.AiAgentLogger.MDC_AGENT, com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW);
+        if (event != null && event.bookingId() != null) {
+            org.slf4j.MDC.put(com.mrlbs.ai.observability.AiAgentLogger.MDC_BOOKING_ID, String.valueOf(event.bookingId()));
+        }
+
+        long startNs = System.nanoTime();
+
+        if (aiLogger != null) {
+            try {
+                java.util.Map<String, Object> inputMeta = new java.util.LinkedHashMap<>();
+                if (event != null) {
+                    inputMeta.put("bookingId", event.bookingId());
+                    inputMeta.put("resourceName", event.resourceName());
+                    inputMeta.put("resourceType", event.resourceType());
+                }
+                if (profile != null) {
+                    inputMeta.put("telemetryQuality", profile.historicalTelemetryQuality());
+                    inputMeta.put("hasHistoricalTelemetry", profile.hasHistoricalTelemetry());
+                    inputMeta.put("isDemo", profile.currentHealth() != null && profile.currentHealth().isDemonstrationData());
+                    inputMeta.put("priorBookingsTotal", profile.priorBookingsTotal());
+                    inputMeta.put("priorBookingsCompleted", profile.priorBookingsCompleted());
+                    inputMeta.put("historyRecordCount", profile.pastBookingTelemetryRecords() != null ? profile.pastBookingTelemetryRecords().size() : 0);
+                }
+                aiLogger.logAgentStart(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
+                        geminiClient.getModelName(), inputMeta);
+            } catch (Exception ignored) {}
+        }
+
         String userPrompt = buildEvaluationPrompt(event, profile);
 
         if (geminiClient.isConfigured()) {
             try {
                 Optional<String> jsonResponseOpt = geminiClient.generateStructuredContent(SYSTEM_INSTRUCTION, userPrompt);
                 if (jsonResponseOpt.isPresent()) {
-                    ReviewEvaluationResult result = parseGeminiResponse(jsonResponseOpt.get(), profile);
+                    ReviewEvaluationResult result = parseGeminiResponse(jsonResponseOpt.get(), profile, correlationId);
                     if (result != null) {
+                        long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+                        if (aiLogger != null) {
+                            aiLogger.logAgentComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
+                                    result.modelName(), durationMs, result.recommendation().name(), result.rationale(),
+                                    java.util.Map.of("confidence", result.confidenceScore(), "isDemo", result.isDemonstrationData()));
+                        }
                         return result;
+                    } else {
+                        if (aiLogger != null) {
+                            aiLogger.logFallbackDecision(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
+                                    "Gemini response could not be parsed; routing to rule-based fallback", "RULE_BASED_FALLBACK");
+                        }
+                    }
+                } else {
+                    if (aiLogger != null) {
+                        aiLogger.logFallbackDecision(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
+                                "Gemini returned empty response; routing to rule-based fallback", "RULE_BASED_FALLBACK");
                     }
                 }
             } catch (Exception e) {
-                log.warn("Gemini evaluation error for booking {}: {}", event.bookingId(), e.getMessage());
+                String sanitizedMsg = com.mrlbs.ai.observability.AiLogSanitizer.sanitize(e.getMessage());
+                log.warn("Gemini evaluation error for booking {}: {}", event != null ? event.bookingId() : "N/A", sanitizedMsg);
+                if (aiLogger != null) {
+                    aiLogger.logFallbackDecision(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
+                            "Gemini evaluation exception: " + sanitizedMsg, "RULE_BASED_FALLBACK");
+                }
+            }
+        } else {
+            if (aiLogger != null) {
+                aiLogger.logFallbackDecision(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
+                        "Gemini API key is not configured; using rule-based fallback", "RULE_BASED_FALLBACK");
             }
         }
 
         // Rule-based deterministic fallback when Gemini is offline, unconfigured, or returns unparseable content
-        return evaluateRuleBasedFallback(profile);
+        ReviewEvaluationResult fallbackResult = evaluateRuleBasedFallback(profile);
+        long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+        if (aiLogger != null) {
+            try {
+                aiLogger.logFallbackDecision(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
+                        "Rule-based fallback outcome evaluated", fallbackResult.recommendation().name());
+                aiLogger.logAgentComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
+                        fallbackResult.modelName(), durationMs, fallbackResult.recommendation().name(), fallbackResult.rationale(),
+                        java.util.Map.of("confidence", fallbackResult.confidenceScore(), "isFallback", true));
+            } catch (Exception ignored) {}
+        }
+        return fallbackResult;
     }
 
     public String buildEvaluationPrompt(BookingReviewEvent event, RequesterHistoryProfile profile) {
@@ -165,7 +246,7 @@ public class AiReviewAgentService {
         return sb.toString();
     }
 
-    private ReviewEvaluationResult parseGeminiResponse(String jsonText, RequesterHistoryProfile profile) {
+    private ReviewEvaluationResult parseGeminiResponse(String jsonText, RequesterHistoryProfile profile, String correlationId) {
         try {
             JsonNode root = objectMapper.readTree(jsonText);
             String recStr = root.path("recommendation").asText("NEEDS_HUMAN_REVIEW").toUpperCase();
@@ -173,6 +254,10 @@ public class AiReviewAgentService {
             try {
                 recommendation = AiReviewRecommendation.valueOf(recStr);
             } catch (IllegalArgumentException e) {
+                if (aiLogger != null) {
+                    aiLogger.logValidationFailure(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
+                            "UNKNOWN_RECOMMENDATION_ENUM: " + recStr, jsonText);
+                }
                 recommendation = AiReviewRecommendation.NEEDS_HUMAN_REVIEW;
             }
 
@@ -188,6 +273,10 @@ public class AiReviewAgentService {
                         || "NO_PRIOR_USAGE".equalsIgnoreCase(profile.historicalTelemetryQuality())
                         || "PARTIAL".equalsIgnoreCase(profile.historicalTelemetryQuality()))) {
                 log.info("Overriding Gemini REJECTION to NEEDS_HUMAN_REVIEW: missing, partial, or demo telemetry cannot justify rejection.");
+                if (aiLogger != null) {
+                    aiLogger.logFallbackDecision(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
+                            "Safety guard triggered: override REJECTION due to missing/partial/demo telemetry", "NEEDS_HUMAN_REVIEW");
+                }
                 recommendation = AiReviewRecommendation.NEEDS_HUMAN_REVIEW;
                 rationale = "Overridden to NEEDS_HUMAN_REVIEW: Absence or limitation of historical telemetry cannot justify rejection. " + rationale;
             }
@@ -202,9 +291,18 @@ public class AiReviewAgentService {
                     geminiClient.getModelName()
             );
         } catch (Exception e) {
-            log.warn("Failed to parse Gemini JSON output: {}. Raw: {}", e.getMessage(), jsonText);
+            String sanitizedErr = com.mrlbs.ai.observability.AiLogSanitizer.sanitize(e.getMessage());
+            log.warn("Failed to parse Gemini JSON output: {}. Raw: {}", sanitizedErr, com.mrlbs.ai.observability.AiLogSanitizer.truncate(jsonText, 150));
+            if (aiLogger != null) {
+                aiLogger.logValidationFailure(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
+                        "JSON_SYNTAX_ERROR: " + sanitizedErr, jsonText);
+            }
             return null;
         }
+    }
+
+    private ReviewEvaluationResult parseGeminiResponse(String jsonText, RequesterHistoryProfile profile) {
+        return parseGeminiResponse(jsonText, profile, org.slf4j.MDC.get(com.mrlbs.ai.observability.AiAgentLogger.MDC_CORRELATION_ID));
     }
 
     public ReviewEvaluationResult evaluateRuleBasedFallback(RequesterHistoryProfile profile) {
