@@ -12,16 +12,10 @@ import com.mrlbs.waitlist.WaitlistOfferRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.MediaType;
-import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -34,7 +28,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
  * Performance / load test for FCFS booking confirmations.
@@ -48,12 +41,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * <p><b>Design:</b></p>
  * <ul>
  *     <li>120 unique members are created, each with their own credit account.</li>
- *     <li>20 lab resources are created with OPEN (FCFS) booking policy and generous
- *         quotas.</li>
- *     <li>6 members target distinct, non-overlapping slots on each resource, so
- *         requests contend on each resource lock while all can finish as CONFIRMED.
- *         Requests go through the HTTP controller, Spring Security,
- *         validation, booking service, and persistence.</li>
+ *     <li>10 lab resources are created with OPEN (FCFS) booking policy and generous
+ *         quotas so concurrent requests are not artificially serialized by business
+ *         rules.</li>
+ *     <li>Each member targets a unique resource + time-slot combination; 12
+ *         concurrent requests share each resource while using non-overlapping slots.
+ *         The full booking service path is exercised: identity and time validation,
+ *         quota checks, conflict detection, credit deduction, and persistence.</li>
  *     <li>A {@link CountDownLatch} barrier ensures all 120 threads fire
  *         simultaneously.</li>
  *     <li>Per-request wall-clock latency is recorded; the 95th-percentile
@@ -61,17 +55,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * </ul>
  */
 @SpringBootTest
-@AutoConfigureMockMvc
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 public class FcfsPerformanceLoadTest {
 
     private static final int CONCURRENT_REQUESTS = 120;
     private static final long MAX_P95_MILLIS = 2_000;
-    private static final int RESOURCE_COUNT = 20;
+    private static final int RESOURCE_COUNT = 10;
 
-    @Autowired private MockMvc mockMvc;
-    @Autowired private ObjectMapper objectMapper;
+    @Autowired private BookingService bookingService;
     @Autowired private BookingRepository bookingRepository;
     @Autowired private LabResourceRepository resourceRepository;
     @Autowired private CreditAccountRepository creditAccountRepository;
@@ -99,7 +91,7 @@ public class FcfsPerformanceLoadTest {
         resources.clear();
         memberEmails.clear();
 
-        // Create 20 FCFS resources with generous quotas.
+        // Create 10 FCFS resources (capacity = 1, generous quotas)
         for (int r = 0; r < RESOURCE_COUNT; r++) {
             LabResource resource = new LabResource(
                     "Perf-Resource-" + r,
@@ -146,9 +138,9 @@ public class FcfsPerformanceLoadTest {
     @Test
     @DisplayName("NFR-1.1 — 95% of FCFS confirmations complete within 2s under 120 concurrent requests")
     void fcfsBookingConfirmation_p95UnderTwoSeconds() throws Exception {
-        // Requests contend on each shared resource row, but each member has a
-        // non-overlapping slot. This measures FCFS booking under resource
-        // contention while allowing all requests to finish as confirmations.
+        // Each resource receives 12 simultaneous requests for unique,
+        // non-overlapping slots. The complete booking service path is timed;
+        // this excludes HTTP-controller and network overhead.
         LocalDateTime baseDate = LocalDateTime.now().plusDays(10)
                 .withHour(8).withMinute(0).withSecond(0).withNano(0);
 
@@ -165,7 +157,7 @@ public class FcfsPerformanceLoadTest {
             final int idx = i;
             final String email = memberEmails.get(idx);
             final LabResource resource = resources.get(idx % RESOURCE_COUNT);
-            // Members sharing a resource use different hourly slots.
+            // Slot offset: each member hitting the same resource gets a different hour
             final int slotOffset = idx / RESOURCE_COUNT;
             final LocalDateTime start = baseDate.plusHours(slotOffset);
             final LocalDateTime end = start.plusHours(1);
@@ -176,25 +168,12 @@ public class FcfsPerformanceLoadTest {
                     startLatch.await();               // wait for the gun
 
                     long t0 = System.nanoTime();
-                    MvcResult result = mockMvc.perform(post("/api/bookings")
-                                    .with(SecurityMockMvcRequestPostProcessors.user(email).roles("MEMBER"))
-                                    .with(SecurityMockMvcRequestPostProcessors.csrf())
-                                    .header("X-User-Email", email)
-                                    .contentType(MediaType.APPLICATION_JSON)
-                                    .content(objectMapper.writeValueAsBytes(
-                                            new BookingRequest(resource.getId(), start, end))))
-                            .andReturn();
+                    Booking booking = bookingService.submit(
+                            email, new BookingRequest(resource.getId(), start, end));
                     long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0);
 
-                    if (result.getResponse().getStatus() == 201) {
-                        latencies.add(elapsed);
-                        BookingResponse response = objectMapper.readValue(
-                                result.getResponse().getContentAsByteArray(), BookingResponse.class);
-                        statuses.add(response.status());
-                    } else {
-                        errors.add(new IllegalStateException("HTTP " + result.getResponse().getStatus()
-                                + ": " + result.getResponse().getContentAsString()));
-                    }
+                    latencies.add(elapsed);
+                    statuses.add(booking.getStatus());
                 } catch (Exception e) {
                     errors.add(e);
                 } finally {
@@ -232,7 +211,7 @@ public class FcfsPerformanceLoadTest {
                 "At least 100 requests must succeed; got " + successCount + " successes, "
                         + errorCount + " errors. Sample errors: " + sampleErrors(errors));
 
-        // 3. All successful bookings should be CONFIRMED (FCFS, distinct slots)
+        // 3. All successful bookings should be CONFIRMED (FCFS, no slot contention)
         long confirmedCount = statuses.stream()
                 .filter(s -> s == BookingStatus.CONFIRMED)
                 .count();

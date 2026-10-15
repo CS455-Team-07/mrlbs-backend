@@ -539,3 +539,34 @@ Modified; awaiting human review.
 
 **Reason:**
 The original test only timed direct service calls and assigned each request a unique resource-slot pair. The revised test exercises the app request path and shares resources across simultaneous callers; its measured performance remains above the requirement locally.
+
+---
+
+#### 2026-10-15 — Correction to BOOK-115 performance test scope
+
+**Task / Context:**
+Re-evaluate the original service-level benchmark after the user clarified that it was intended to measure the booking service path.
+
+**Prompt:**
+The user asked whether their original implementation satisfied the requirement. The original test's intended benchmark is service-level FCFS processing, not HTTP request latency.
+
+**AI Output:**
+Restored the 10-resource, 120-request service-level benchmark, with 12 concurrent requests per resource targeting distinct time slots. It directly calls `BookingService.submit`, exercising identity/time validation, quota checks, conflict detection, credit deduction, and persistence. The measured elapsed time excludes HTTP controller and network overhead. Added context cleanup and guaranteed executor shutdown. Updated PR #32's description to state this scope and its local result.
+
+**Student/Team Evaluation:**
+Pending human review.
+
+**Errors / Risks / Hallucinations:**
+The earlier 2.7-second p95 result was for the stricter HTTP-dispatch variant, not the user's original service-level benchmark. The H2 test profile is not a production database or network benchmark; latency can vary by environment. This benchmark does not validate HTTP controller dispatch or client-visible latency.
+
+**Changes Made After Evaluation:**
+Reverted the HTTP/MockMvc timing variant in `src/test/java/com/mrlbs/booking/FcfsPerformanceLoadTest.java`; retained `@DirtiesContext` and executor shutdown. Re-ran the focused test successfully: 120/120 requests succeeded and were confirmed; observed p95 was 213 ms.
+
+**Final Accepted Artifact:**
+Updated service-path load test and corrected description on draft pull request #32.
+
+**Decision:**
+Modified; awaiting human review.
+
+**Reason:**
+The original test meets the defined 120-request, sub-two-second service-path criterion in the local H2 run. It should be described as a service-layer benchmark because it excludes HTTP and network overhead. The earlier log entry remains as a record of the stricter variant and is corrected here rather than silently changed.
