@@ -1,5 +1,7 @@
 package com.mrlbs.resource;
 
+import com.mrlbs.telemetry.ResourceTelemetryMapping;
+import com.mrlbs.telemetry.ResourceTelemetryMappingRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,11 +14,14 @@ public class LabResourceService {
 
     private final LabResourceRepository resourceRepository;
     private final BookingRuleRepository bookingRuleRepository;
+    private final ResourceTelemetryMappingRepository telemetryMappingRepository;
 
     public LabResourceService(LabResourceRepository resourceRepository,
-                              BookingRuleRepository bookingRuleRepository) {
+                              BookingRuleRepository bookingRuleRepository,
+                              ResourceTelemetryMappingRepository telemetryMappingRepository) {
         this.resourceRepository = resourceRepository;
         this.bookingRuleRepository = bookingRuleRepository;
+        this.telemetryMappingRepository = telemetryMappingRepository;
     }
 
     @Transactional
@@ -70,7 +75,43 @@ public class LabResourceService {
             resource.setBookingRule(savedRule);
         }
 
-        return resourceRepository.save(resource);
+        LabResource saved = resourceRepository.save(resource);
+
+        if (saved.getType() != null && "GPU".equalsIgnoreCase(saved.getType().trim())) {
+            autoMapGpuTelemetry(saved);
+        }
+
+        return saved;
+    }
+
+    private void autoMapGpuTelemetry(LabResource resource) {
+        if (telemetryMappingRepository.existsByResourceId(resource.getId())) {
+            return;
+        }
+
+        String rawName = resource.getName() != null ? resource.getName().trim() : "gpu-node";
+        String baseExternalId = rawName.toLowerCase()
+                .replaceAll("[^a-z0-9_-]", "-")
+                .replaceAll("-+", "-");
+
+        if (baseExternalId.startsWith("-")) {
+            baseExternalId = baseExternalId.substring(1);
+        }
+        if (baseExternalId.endsWith("-")) {
+            baseExternalId = baseExternalId.substring(0, baseExternalId.length() - 1);
+        }
+        if (baseExternalId.isBlank()) {
+            baseExternalId = "gpu-node-" + resource.getId().toString().substring(0, 8);
+        }
+
+        String externalId = baseExternalId;
+        int counter = 1;
+        while (telemetryMappingRepository.existsByExternalResourceId(externalId)) {
+            externalId = baseExternalId + "-" + counter++;
+        }
+
+        ResourceTelemetryMapping mapping = new ResourceTelemetryMapping(resource.getId(), externalId);
+        telemetryMappingRepository.save(mapping);
     }
 
     @Transactional(readOnly = true)

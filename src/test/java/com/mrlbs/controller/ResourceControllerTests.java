@@ -30,8 +30,12 @@ class ResourceControllerTests {
     @Autowired
     private LabResourceRepository resourceRepository;
 
+    @Autowired
+    private com.mrlbs.telemetry.ResourceTelemetryMappingRepository telemetryMappingRepository;
+
     @BeforeEach
     void clearResources() {
+        telemetryMappingRepository.deleteAll();
         resourceRepository.deleteAll();
     }
 
@@ -144,5 +148,36 @@ class ResourceControllerTests {
                 .andExpect(status().isForbidden());
 
         org.assertj.core.api.Assertions.assertThat(resourceRepository.count()).isZero();
+    }
+
+    @Test
+    void adminCreatingGpuResourceAutomaticallyGeneratesTelemetryMapping() throws Exception {
+        mockMvc.perform(post("/api/resources")
+                        .with(user("admin").roles("ADMIN"))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "NVIDIA H100 Node 03",
+                                  "type": "GPU",
+                                  "location": "KD Lab, Rack 4",
+                                  "capacity": 1,
+                                  "approvalRequired": true,
+                                  "rules": ["Dedicated research workloads only"]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").isNotEmpty())
+                .andExpect(jsonPath("$.name").value("NVIDIA H100 Node 03"))
+                .andExpect(jsonPath("$.type").value("GPU"));
+
+        var createdGpu = resourceRepository.findAll().stream()
+                .filter(r -> "NVIDIA H100 Node 03".equals(r.getName()))
+                .findFirst().orElseThrow();
+
+        var mappingOpt = telemetryMappingRepository.findByResourceId(createdGpu.getId());
+        org.assertj.core.api.Assertions.assertThat(mappingOpt).isPresent();
+        org.assertj.core.api.Assertions.assertThat(mappingOpt.get().getExternalResourceId())
+                .isEqualTo("nvidia-h100-node-03");
     }
 }
