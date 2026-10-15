@@ -1,11 +1,28 @@
 package com.mrlbs.resource;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
+
 public class ResourceUpdateRequest {
 
+    @Size(min = 1, max = 160)
+    @Pattern(regexp = ".*\\S.*", message = "name must not be blank")
     private String name;
+
+    @Size(min = 1, max = 100)
+    @Pattern(regexp = ".*\\S.*", message = "type must not be blank")
     private String type;
+
+    @Size(min = 1, max = 255)
+    @Pattern(regexp = ".*\\S.*", message = "location must not be blank")
     private String location;
+
+    @Positive
     private Integer capacity;
+
+    @Valid
     private BookingRule bookingRule;
 
     public String getName() {

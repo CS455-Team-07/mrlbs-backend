@@ -1,5 +1,7 @@
 package com.mrlbs.controller;
 import com.mrlbs.auth.OtpService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.Map;
 
 import com.mrlbs.security.AdminResourceScope;
@@ -17,6 +19,10 @@ import com.mrlbs.security.DemoAuthenticationFilter;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,6 +30,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     private final MemberService memberService;
     private final OtpService otpService;
@@ -41,23 +49,15 @@ public class AuthController {
      */
     @PostMapping("/login")
     public ResponseEntity<?> login(
-            @RequestBody Map<String, String> body,
+            @Valid @RequestBody LoginRequest body,
             HttpServletResponse response) {
-        String email = body.getOrDefault("email", "").trim().toLowerCase();
-        String role = body.getOrDefault("role", "member").trim().toLowerCase();
-
-        if (email.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("message", "Email is required."));
-        }
-        if (!email.endsWith("@iitk.ac.in")) {
-            return ResponseEntity.badRequest().body(Map.of("message", "Only @iitk.ac.in email addresses are accepted."));
-        }
+        String email = body.email().trim().toLowerCase();
+        String role = body.role() == null ? "member" : body.role().trim().toLowerCase();
 
         if ("admin".equalsIgnoreCase(role)) {
             if (!AdminResourceScope.isScopedAdmin(email)) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "message", "This email is not an authorized administrator. Please switch to Member Login."
-                ));
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST);
             }
 
             Cookie adminCookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, email);
@@ -113,6 +113,7 @@ public class AuthController {
                         "message", "First-time sign in: a one-time verification code has been sent to " + email
                 ));
             } catch (Exception e) {
+                log.warn("Could not send a first-time member verification code", e);
                 return ResponseEntity.internalServerError().body(Map.of(
                         "message", "Could not send the verification code. Please try again."
                 ));
@@ -122,41 +123,35 @@ public class AuthController {
 
     /** POST /api/auth/request-code  { "email": "user@iitk.ac.in" } */
     @PostMapping("/request-code")
-    public ResponseEntity<?> requestCode(@RequestBody Map<String, String> body) {
-        String email = body.getOrDefault("email", "").trim();
-        if (email.isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("message", "Email is required."));
-        }
+    public ResponseEntity<?> requestCode(@Valid @RequestBody EmailRequest body) {
+        String email = body.email().trim().toLowerCase();
         try {
             otpService.generateAndSend(email);
             return ResponseEntity.ok(
                     Map.of("message", "A verification code has been sent to " + email));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("message", e.getMessage()));
+            return ResponseEntity.badRequest().body(Map.of(
+                    "message", "The request contains invalid data."
+            ));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(Map.of("message", "Could not send the verification code. Please try again."));
+            log.warn("Could not send a verification code", e);
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "message", "Could not send the verification code. Please try again."
+            ));
         }
     }
 
     /** POST /api/auth/verify-code  { "email": "user@iitk.ac.in", "code": "123456" } */
     @PostMapping("/verify-code")
     public ResponseEntity<?> verifyCode(
-            @RequestBody Map<String, String> body,
+            @Valid @RequestBody VerificationRequest body,
             HttpServletResponse response) {
-        String email = body.getOrDefault("email", "").trim();
-        String code  = body.getOrDefault("code", "").trim();
-
-        if (email.isEmpty() || code.isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("message", "Email and code are required."));
-        }
+        String email = body.email().trim().toLowerCase();
+        String code = body.code().trim();
 
         if (!otpService.verify(email, code)) {
-            return ResponseEntity.status(401)
-                    .body(Map.of("message", "Invalid or expired verification code."));
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED);
         }
 
         // OTP is valid → determine role
@@ -266,5 +261,25 @@ public class AuthController {
     }
 
     public record CsrfTokenResponse(String token, String headerName) {
+    }
+
+    public record LoginRequest(
+            @NotBlank @Email @Size(max = 254)
+            @Pattern(regexp = "^[A-Za-z0-9._%+-]+@iitk\\.ac\\.in$", flags = Pattern.Flag.CASE_INSENSITIVE,
+                    message = "email must use the @iitk.ac.in domain") String email,
+            @Pattern(regexp = "(?i)member|admin", message = "role must be member or admin") String role) {
+    }
+
+    public record EmailRequest(
+            @NotBlank @Email @Size(max = 254)
+            @Pattern(regexp = "^[A-Za-z0-9._%+-]+@iitk\\.ac\\.in$", flags = Pattern.Flag.CASE_INSENSITIVE,
+                    message = "email must use the @iitk.ac.in domain") String email) {
+    }
+
+    public record VerificationRequest(
+            @NotBlank @Email @Size(max = 254)
+            @Pattern(regexp = "^[A-Za-z0-9._%+-]+@iitk\\.ac\\.in$", flags = Pattern.Flag.CASE_INSENSITIVE,
+                    message = "email must use the @iitk.ac.in domain") String email,
+            @NotBlank @Pattern(regexp = "\\d{6}", message = "code must contain exactly 6 digits") String code) {
     }
 }

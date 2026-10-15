@@ -231,7 +231,7 @@ public class BookingController {
                 .orElse(org.springframework.http.ResponseEntity.notFound().build());
     }
 
-    public record RejectionRequest(String reason) {}
+    public record RejectionRequest(@jakarta.validation.constraints.Size(max = 1000) String reason) {}
 
     @PostMapping("/{id}/approve")
     @PreAuthorize("hasRole('ADMIN')")
@@ -245,7 +245,7 @@ public class BookingController {
     @PreAuthorize("hasRole('ADMIN')")
     public BookingResponse reject(@AuthenticationPrincipal OidcUser user,
                                  @org.springframework.web.bind.annotation.PathVariable UUID id,
-                                 @RequestBody(required = false) RejectionRequest request) {
+                                 @Valid @RequestBody(required = false) RejectionRequest request) {
         String reason = (request != null && request.reason() != null && !request.reason().isBlank())
                 ? request.reason()
                 : "Rejected by administrator";

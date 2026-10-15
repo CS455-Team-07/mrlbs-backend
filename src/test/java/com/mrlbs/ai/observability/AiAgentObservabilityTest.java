@@ -308,7 +308,7 @@ class AiAgentObservabilityTest {
 
             AiPromptRequest request = new AiPromptRequest(
                     "Lecture hall for tomorrow 10:00 - 12:00 with 100 seats",
-                    "2026-10-14",
+                    LocalDate.of(2026, 10, 14),
                     null
             );
 

@@ -1,5 +1,10 @@
 package com.mrlbs.resource;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.persistence.*;
 
 @Entity
@@ -12,18 +17,23 @@ public class BookingRule {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    @NotNull
     private BookingPolicy bookingPolicy;
 
     @Column(nullable = false)
+    @Positive
     private Integer minDurationMinutes;
 
     @Column(nullable = false)
+    @Positive
     private Integer maxDurationMinutes;
 
     @Column(nullable = false)
+    @PositiveOrZero
     private Integer bufferTimeMinutes;
 
     @Column(nullable = false)
+    @Positive
     private Integer maxBookingsPerMember;
 
     public BookingRule() {
@@ -71,5 +81,12 @@ public class BookingRule {
 
     public void setMaxBookingsPerMember(Integer maxBookingsPerMember) {
         this.maxBookingsPerMember = maxBookingsPerMember;
+    }
+
+    @JsonIgnore
+    @AssertTrue(message = "minDurationMinutes must not exceed maxDurationMinutes")
+    public boolean isDurationRangeValid() {
+        return minDurationMinutes == null || maxDurationMinutes == null
+                || minDurationMinutes <= maxDurationMinutes;
     }
 }

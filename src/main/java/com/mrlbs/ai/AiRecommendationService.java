@@ -400,15 +400,7 @@ public class AiRecommendationService {
         }
         org.slf4j.MDC.put(com.mrlbs.ai.observability.AiAgentLogger.MDC_AGENT, com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION);
 
-        LocalDate contextDate = null;
-        if (request.contextDate() != null && !request.contextDate().isBlank()) {
-            try {
-                contextDate = LocalDate.parse(request.contextDate());
-            } catch (Exception ignored) {}
-        }
-        if (contextDate == null) {
-            contextDate = LocalDate.now();
-        }
+        LocalDate contextDate = request.contextDate() == null ? LocalDate.now() : request.contextDate();
 
         long startNs = System.nanoTime();
         if (aiLogger != null) {
