@@ -43,8 +43,15 @@ public class BookingService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.mrlbs.ai.review.BookingEventPublisher eventPublisher;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.mrlbs.notification.InAppNotificationRepository notificationRepository;
+
     public void setEventPublisher(com.mrlbs.ai.review.BookingEventPublisher eventPublisher) {
         this.eventPublisher = eventPublisher;
+    }
+
+    public void setNotificationRepository(com.mrlbs.notification.InAppNotificationRepository notificationRepository) {
+        this.notificationRepository = notificationRepository;
     }
 
     public BookingService(BookingRepository bookingRepository, LabResourceRepository resourceRepository,
@@ -219,6 +226,14 @@ public class BookingService {
                         "This time window clashes with an already booked slot. Please select the exact slot to go to waitlist or choose a different time.");
             }
 
+            if (isApprovalRequired(resource)) {
+                booking.setStatus(BookingStatus.PENDING_APPROVAL);
+                booking.setCreditCost(BigDecimal.ZERO);
+                Booking savedBooking = bookingRepository.save(booking);
+                dispatchPendingApprovalIfApplicable(savedBooking);
+                return savedBooking;
+            }
+
             if (conflict == BookingConflictType.EXACT_MATCH) {
                 Booking parentBooking = findParentBooking(overlapping, start, end);
                 LocalDateTime wlStart = parentBooking != null ? parentBooking.getStartTime() : start;
@@ -346,9 +361,19 @@ public class BookingService {
         if (wasDebitEligible) {
             BigDecimal refundCost = booking.getCreditCost();
             if (refundCost != null && refundCost.signum() > 0) {
+                final UUID finalMemberId = booking.getMemberId();
+                final String finalResName = booking.getResource() != null ? booking.getResource().getName() : "Resource";
                 creditAccountRepository.findForUpdate(ownerEmail).ifPresent(account -> {
                     account.credit(refundCost);
                     creditAccountRepository.save(account);
+                    if (notificationRepository != null && finalMemberId != null) {
+                        com.mrlbs.notification.InAppNotification notif = new com.mrlbs.notification.InAppNotification(
+                                finalMemberId,
+                                "Credits Refunded",
+                                "Your booking for " + finalResName + " has been cancelled. " + refundCost + " credits refunded. Remaining balance: " + account.getBalance() + " credits."
+                        );
+                        notificationRepository.save(notif);
+                    }
                 });
             }
         }
@@ -417,6 +442,16 @@ public class BookingService {
         if (conflict == BookingConflictType.PARTIAL_CONFLICT) {
             throw new BookingRejectedException(BookingRejectionReason.SLOT_CONFLICT,
                     "This time window clashes with an already booked slot. Please select the exact slot to go to waitlist or choose a different time.");
+        }
+
+        if (isApprovalRequired(resource)) {
+            Booking booking = new Booking(ownerEmail, resource, start, end,
+                    BookingStatus.PENDING_APPROVAL,
+                    BigDecimal.ZERO);
+            booking.setMemberId(memberId);
+            Booking saved = bookingRepository.save(booking);
+            dispatchPendingApprovalIfApplicable(saved);
+            return saved;
         }
 
         if (conflict == BookingConflictType.EXACT_MATCH) {
@@ -526,9 +561,35 @@ public class BookingService {
         }
     }
 
+    private BookingRule getBookingRuleSafely(LabResource resource) {
+        if (resource == null) {
+            return null;
+        }
+        try {
+            BookingRule rule = resource.getBookingRule();
+            if (rule != null) {
+                return rule;
+            }
+        } catch (Exception ignored) {
+        }
+        if (resource.getId() != null && resourceRepository != null) {
+            try {
+                return resourceRepository.findById(resource.getId())
+                        .map(LabResource::getBookingRule)
+                        .orElse(null);
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private boolean isApprovalRequired(LabResource resource) {
+        BookingRule rule = getBookingRuleSafely(resource);
+        return rule != null && rule.getBookingPolicy() == com.mrlbs.resource.BookingPolicy.APPROVAL_REQUIRED;
+    }
+
     private BookingStatus resolveBookingStatus(LabResource resource, BookingConflictType conflict) {
-        BookingRule rule = resource != null ? resource.getBookingRule() : null;
-        if (rule != null && rule.getBookingPolicy() == com.mrlbs.resource.BookingPolicy.APPROVAL_REQUIRED) {
+        if (isApprovalRequired(resource)) {
             return BookingStatus.PENDING_APPROVAL;
         }
         return conflict == BookingConflictType.EXACT_MATCH ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED;
@@ -540,10 +601,12 @@ public class BookingService {
         List<Booking> pending = bookingRepository.findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL)
                 .stream()
                 .sorted(
-                        Comparator.comparing((Booking booking) -> booking.getStartTime(), Comparator.nullsLast(LocalDateTime::compareTo))
+                        Comparator.comparing((Booking booking) -> booking.getStartTime() != null ? booking.getStartTime().toLocalDate() : null,
+                                        Comparator.nullsLast(java.time.LocalDate::compareTo))
+                                .thenComparing(booking -> booking.getCreatedAt(), Comparator.nullsLast(LocalDateTime::compareTo))
+                                .thenComparing(booking -> booking.getStartTime(), Comparator.nullsLast(LocalDateTime::compareTo))
                                 .thenComparing(booking -> booking.getResource() != null ? booking.getResource().getId() : null,
-                                        Comparator.nullsLast(Comparator.naturalOrder()))
-                                .thenComparing(booking -> booking.getCreatedAt(), Comparator.nullsLast(LocalDateTime::compareTo)))
+                                        Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
         if (scope == null || scope.isBlank()) {
             return pending;
@@ -558,6 +621,11 @@ public class BookingService {
 
     @Transactional
     public Booking reviewApprovalDecision(String adminEmail, UUID bookingId, boolean approved) {
+        return reviewApprovalDecision(adminEmail, bookingId, approved, approved ? null : "Rejected by administrator");
+    }
+
+    @Transactional
+    public Booking reviewApprovalDecision(String adminEmail, UUID bookingId, boolean approved, String rejectionReason) {
         validateIdentity(adminEmail);
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
@@ -574,54 +642,161 @@ public class BookingService {
                     "This admin cannot review bookings for the selected resource type.");
         }
 
-        boolean wasWaitlisted = waitlistRepository != null && waitlistRepository.findByBookingId(booking.getId()).isPresent();
-
-        if (approved) {
-            if (wasWaitlisted && booking.getCreditCost() != null && booking.getCreditCost().signum() > 0) {
-                String memberEmail = resolveOwnerEmail(booking);
-                if (memberEmail != null && !memberEmail.isBlank()) {
-                    CreditAccount account = creditAccountRepository.findForUpdate(memberEmail).orElse(null);
-                    if (account == null || account.getBalance().compareTo(booking.getCreditCost()) < 0) {
-                        throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
-                                "The member does not have enough credits to confirm this booking.");
-                    }
-                    account.debit(booking.getCreditCost());
-                    creditAccountRepository.save(account);
-                }
-            }
-            booking.setStatus(BookingStatus.CONFIRMED);
-            return bookingRepository.save(booking);
+        LabResource resource = getResourceForUpdate(
+                booking.getResource() != null ? booking.getResource().getId() : null,
+                booking.getResource());
+        if (resource == null) {
+            throw new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
+                    "The requested resource is not available.");
         }
 
-        if (!wasWaitlisted && booking.getCreditCost() != null && booking.getCreditCost().signum() > 0) {
-            String memberEmail = resolveOwnerEmail(booking);
-            if (memberEmail != null && !memberEmail.isBlank()) {
-                CreditAccount account = creditAccountRepository.findForUpdate(memberEmail).orElse(null);
-                if (account != null) {
-                    account.credit(booking.getCreditCost());
-                    creditAccountRepository.save(account);
-                }
+        if (approved) {
+            // Revalidate duration
+            validateDuration(resource, booking.getStartTime(), booking.getEndTime());
+            // Revalidate quota
+            validateQuota(booking.getMemberId(), resource);
+
+            // Revalidate buffer time and slot availability
+            List<Booking> overlapping = bookingRepository.findOverlappingConfirmedForUpdate(
+                    resource.getId(), booking.getStartTime(), booking.getEndTime()).stream()
+                    .filter(b -> b != null && b.getStatus() != BookingStatus.PENDING_APPROVAL)
+                    .filter(b -> b.getId() == null || booking.getId() == null || !b.getId().equals(booking.getId()))
+                    .toList();
+            BookingConflictType conflict = detectConflict(resource, booking.getStartTime(), booking.getEndTime(), overlapping, booking);
+
+            if (checkBufferViolation(resource, booking.getStartTime(), booking.getEndTime(), overlapping, booking)) {
+                BookingRule rule = getBookingRuleSafely(resource);
+                int bufMinutes = (rule != null && rule.getBufferTimeMinutes() != null) ? rule.getBufferTimeMinutes() : 15;
+                throw new BookingRejectedException(BookingRejectionReason.BUFFER_TIME_VIOLATION,
+                        "Booking violates the required buffer time of " + bufMinutes + " minutes between sessions.");
             }
+
+            if (conflict == BookingConflictType.PARTIAL_CONFLICT) {
+                throw new BookingRejectedException(BookingRejectionReason.SLOT_CONFLICT,
+                        "This time window clashes with an already booked slot. Please select the exact slot to go to waitlist or choose a different time.");
+            }
+
+            String memberEmail = resolveOwnerEmail(booking);
+            CreditAccount account = creditAccountRepository.findForUpdate(memberEmail).orElse(null);
+
+            if (conflict == BookingConflictType.EXACT_MATCH) {
+                // Slot occupied: calculate cost using next queue number and contention multiplier
+                long queueNumber = calculateNextQueueNumber(resource.getId(), booking.getStartTime(), booking.getEndTime());
+                BigDecimal contention = calculateWaitlistContention(resource, queueNumber);
+                Duration duration = Duration.between(booking.getStartTime(), booking.getEndTime());
+                var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, contention,
+                        new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
+                BigDecimal cost = quote.totalCredits();
+
+                if (account == null || account.getBalance().compareTo(cost) < 0) {
+                    throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
+                            "The member does not have enough credits for this waitlist booking. Required: " + cost + ", available: " + (account != null ? account.getBalance() : BigDecimal.ZERO));
+                }
+
+                // Deduct credits exactly once
+                account.debit(cost);
+                creditAccountRepository.save(account);
+
+                booking.setCreditCost(cost);
+                booking.setStatus(BookingStatus.IN_PROGRESS);
+                Booking savedBooking = bookingRepository.save(booking);
+
+                // Create or reuse existing waitlist entry
+                if (waitlistRepository != null) {
+                    var existingOpt = waitlistRepository.findByBookingId(savedBooking.getId());
+                    if (existingOpt.isPresent()) {
+                        var entry = existingOpt.get();
+                        entry.setStatus(BookingStatus.IN_PROGRESS);
+                        entry.setCreditCost(cost);
+                        entry.setContentionMultiplier(quote.appliedContentionMultiplier());
+                        waitlistRepository.save(entry);
+                    } else {
+                        com.mrlbs.waitlist.WaitlistEntry entry = new com.mrlbs.waitlist.WaitlistEntry(
+                                savedBooking.getMemberId(),
+                                resource,
+                                savedBooking.getStartTime(),
+                                savedBooking.getEndTime(),
+                                BookingStatus.IN_PROGRESS,
+                                savedBooking.getId(),
+                                cost,
+                                quote.appliedContentionMultiplier()
+                        );
+                        waitlistRepository.save(entry);
+                    }
+                }
+
+                // In-app notification for credit deduction
+                if (notificationRepository != null && savedBooking.getMemberId() != null) {
+                    com.mrlbs.notification.InAppNotification notif = new com.mrlbs.notification.InAppNotification(
+                            savedBooking.getMemberId(),
+                            "Credits Deducted",
+                            "Your booking request for " + resource.getName() + " has been approved and placed on the waitlist. " + cost + " credits deducted. Remaining balance: " + account.getBalance() + " credits."
+                    );
+                    notificationRepository.save(notif);
+                }
+
+                return savedBooking;
+            }
+
+            // Slot available: queue number = 0, contention = 1.0
+            Duration duration = Duration.between(booking.getStartTime(), booking.getEndTime());
+            var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, BigDecimal.ONE,
+                    new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
+            BigDecimal cost = quote.totalCredits();
+
+            if (account == null || account.getBalance().compareTo(cost) < 0) {
+                throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
+                        "The member does not have enough credits to confirm this booking. Required: " + cost + ", available: " + (account != null ? account.getBalance() : BigDecimal.ZERO));
+            }
+
+            // Deduct credits exactly once
+            account.debit(cost);
+            creditAccountRepository.save(account);
+
+            booking.setCreditCost(cost);
+            booking.setStatus(BookingStatus.CONFIRMED);
+            Booking savedBooking = bookingRepository.save(booking);
+
+            // In-app notification for credit deduction
+            if (notificationRepository != null && savedBooking.getMemberId() != null) {
+                com.mrlbs.notification.InAppNotification notif = new com.mrlbs.notification.InAppNotification(
+                        savedBooking.getMemberId(),
+                        "Credits Deducted",
+                        "Your booking request for " + resource.getName() + " has been approved and confirmed. " + cost + " credits deducted. Remaining balance: " + account.getBalance() + " credits."
+                );
+                notificationRepository.save(notif);
+            }
+
+            return savedBooking;
+        }
+
+        // Rejection branch
+        if (rejectionReason == null || rejectionReason.trim().isEmpty()) {
+            throw new IllegalArgumentException("A rejection reason is required.");
         }
 
         booking.setStatus(BookingStatus.REJECTED);
+        booking.setRejectionReason(rejectionReason.trim());
         booking.setCancelledAt(LocalDateTime.now());
         Booking saved = bookingRepository.save(booking);
 
-        if (saved.getResource() != null) {
-            if (waitlistOfferService != null && waitlistOfferService.isOfferModeEnabled()) {
-                waitlistOfferService.processReleasedSlotForOffer(
-                        saved.getResource().getId(),
-                        saved.getStartTime(),
-                        saved.getEndTime()
-                );
-            } else if (waitlistAllocationService != null) {
-                waitlistAllocationService.processReleasedSlot(
-                        saved.getResource().getId(),
-                        saved.getStartTime(),
-                        saved.getEndTime()
-                );
-            }
+        if (waitlistRepository != null) {
+            waitlistRepository.findByBookingId(saved.getId()).ifPresent(entry -> {
+                entry.setStatus(BookingStatus.CANCELLED);
+                entry.setLeftAt(LocalDateTime.now());
+                waitlistRepository.save(entry);
+            });
+        }
+
+        // Send rejection notification to the member
+        if (notificationRepository != null && saved.getMemberId() != null) {
+            String resName = saved.getResource() != null ? saved.getResource().getName() : "Resource";
+            com.mrlbs.notification.InAppNotification notif = new com.mrlbs.notification.InAppNotification(
+                    saved.getMemberId(),
+                    "Booking Request Rejected",
+                    "Your booking request for " + resName + " was rejected. Reason: " + rejectionReason.trim()
+            );
+            notificationRepository.save(notif);
         }
 
         return saved;
@@ -668,20 +843,24 @@ public class BookingService {
     }
 
     private LabResource getResourceForUpdate(UUID resourceId, LabResource fallback) {
-        if (resourceRepository == null) {
+        final UUID targetResourceId = resourceId != null ? resourceId : (fallback != null ? fallback.getId() : null);
+        if (targetResourceId == null || resourceRepository == null) {
             return fallback;
         }
         try {
-            return resourceRepository.findByIdForUpdate(resourceId)
-                    .or(() -> resourceRepository.findById(resourceId))
-                    .orElse(fallback);
+            return resourceRepository.findByIdForUpdate(targetResourceId)
+                    .orElseGet(() -> resourceRepository.findById(targetResourceId).orElse(fallback));
         } catch (Exception e) {
-            return fallback;
+            try {
+                return resourceRepository.findById(targetResourceId).orElse(fallback);
+            } catch (Exception ex) {
+                return fallback;
+            }
         }
     }
 
     private void validateDuration(LabResource resource, LocalDateTime start, LocalDateTime end) {
-        BookingRule rule = resource.getBookingRule();
+        BookingRule rule = getBookingRuleSafely(resource);
         if (rule == null) {
             return;
         }
@@ -697,7 +876,7 @@ public class BookingService {
     }
 
     private void validateQuota(UUID memberId, LabResource resource) {
-        BookingRule rule = resource.getBookingRule();
+        BookingRule rule = getBookingRuleSafely(resource);
         if (rule == null || rule.getMaxBookingsPerMember() == null || rule.getMaxBookingsPerMember() <= 0) {
             return;
         }
@@ -712,12 +891,15 @@ public class BookingService {
     private List<Booking> acquireSlotWithPessimisticLock(LabResource resource, LocalDateTime start, LocalDateTime end) {
         List<Booking> overlapping = bookingRepository.findOverlappingConfirmedForUpdate(
                 resource.getId(), start, end);
+        List<Booking> nonPending = (overlapping != null ? overlapping : List.<Booking>of()).stream()
+                .filter(b -> b != null && b.getStatus() != BookingStatus.PENDING_APPROVAL)
+                .toList();
         int capacity = (resource.getCapacity() != null && resource.getCapacity() > 0) ? resource.getCapacity() : 1;
-        if (overlapping != null && overlapping.size() >= capacity) {
+        if (nonPending.size() >= capacity) {
             throw new BookingRejectedException(BookingRejectionReason.SLOT_NO_LONGER_AVAILABLE,
                     "This slot is no longer available. Please choose another time.");
         }
-        return overlapping != null ? overlapping : List.of();
+        return nonPending;
     }
 
     @Transactional(readOnly = true)
@@ -734,8 +916,10 @@ public class BookingService {
 
     private BookingConflictType detectConflict(LabResource resource, LocalDateTime start, LocalDateTime end,
                                               List<Booking> overlapping, Booking currentBooking) {
-        List<Booking> relevantOverlaps = filterOutCurrentBooking(currentBooking, overlapping);
-        if (relevantOverlaps != null && !relevantOverlaps.isEmpty()) {
+        List<Booking> relevantOverlaps = filterOutCurrentBooking(currentBooking, overlapping).stream()
+                .filter(b -> b != null && b.getStatus() != BookingStatus.PENDING_APPROVAL)
+                .toList();
+        if (!relevantOverlaps.isEmpty()) {
             boolean anyExactOrSubsetMatch = relevantOverlaps.stream()
                     .anyMatch(existing -> existing != null
                             && existing.getStartTime() != null
@@ -759,7 +943,7 @@ public class BookingService {
         }
         return overlapping.stream()
                 .filter(b -> b != null && b.getStartTime() != null && b.getEndTime() != null
-                        && b.getStatus() == BookingStatus.CONFIRMED
+                        && b.getStatus() != BookingStatus.PENDING_APPROVAL
                         && !start.isBefore(b.getStartTime()) && !end.isAfter(b.getEndTime()))
                 .findFirst()
                 .orElse(null);
@@ -777,7 +961,7 @@ public class BookingService {
 
     private boolean checkBufferViolation(LabResource resource, LocalDateTime start, LocalDateTime end,
                                         List<Booking> directOverlaps, Booking currentBooking) {
-        BookingRule rule = resource.getBookingRule();
+        BookingRule rule = getBookingRuleSafely(resource);
         if (rule == null || rule.getBufferTimeMinutes() == null || rule.getBufferTimeMinutes() <= 0) {
             return false;
         }
@@ -786,7 +970,9 @@ public class BookingService {
         List<Booking> windowBookings = bookingRepository.findConfirmedInWindow(
                 resource.getId(), bufferStart, bufferEnd);
         if (windowBookings != null) {
-            List<Booking> relevantWindowBookings = filterOutCurrentBooking(currentBooking, windowBookings);
+            List<Booking> relevantWindowBookings = filterOutCurrentBooking(currentBooking, windowBookings).stream()
+                    .filter(b -> b != null && b.getStatus() != BookingStatus.PENDING_APPROVAL)
+                    .toList();
             return relevantWindowBookings.stream()
                     .anyMatch(b -> directOverlaps == null || !directOverlaps.contains(b));
         }
@@ -795,9 +981,10 @@ public class BookingService {
 
     private void validateBufferTime(LabResource resource, LocalDateTime start, LocalDateTime end, List<Booking> directOverlaps) {
         if (checkBufferViolation(resource, start, end, directOverlaps, null)) {
-            BookingRule rule = resource.getBookingRule();
+            BookingRule rule = getBookingRuleSafely(resource);
+            int bufMinutes = (rule != null && rule.getBufferTimeMinutes() != null) ? rule.getBufferTimeMinutes() : 15;
             throw new BookingRejectedException(BookingRejectionReason.BUFFER_TIME_VIOLATION,
-                    "Booking violates the required buffer time of " + rule.getBufferTimeMinutes() + " minutes between sessions.");
+                    "Booking violates the required buffer time of " + bufMinutes + " minutes between sessions.");
         }
     }
 

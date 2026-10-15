@@ -28,19 +28,19 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     Optional<Booking> findByIdForUpdate(@Param("id") UUID id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT b FROM Booking b WHERE b.resource.id = :resourceId AND b.status IN (com.mrlbs.booking.BookingStatus.CONFIRMED, com.mrlbs.booking.BookingStatus.PENDING, com.mrlbs.booking.BookingStatus.PENDING_APPROVAL, com.mrlbs.booking.BookingStatus.IN_PROGRESS) AND b.startTime < :end AND b.endTime > :start")
+    @Query("SELECT b FROM Booking b WHERE b.resource.id = :resourceId AND b.status IN (com.mrlbs.booking.BookingStatus.CONFIRMED, com.mrlbs.booking.BookingStatus.IN_PROGRESS) AND b.startTime < :end AND b.endTime > :start")
     List<Booking> findOverlappingConfirmedForUpdate(
             @Param("resourceId") UUID resourceId,
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end);
 
-    @Query("SELECT b FROM Booking b WHERE b.resource.id = :resourceId AND b.status IN (com.mrlbs.booking.BookingStatus.CONFIRMED, com.mrlbs.booking.BookingStatus.PENDING, com.mrlbs.booking.BookingStatus.PENDING_APPROVAL, com.mrlbs.booking.BookingStatus.IN_PROGRESS) AND b.startTime < :end AND b.endTime > :start")
+    @Query("SELECT b FROM Booking b WHERE b.resource.id = :resourceId AND b.status IN (com.mrlbs.booking.BookingStatus.CONFIRMED, com.mrlbs.booking.BookingStatus.IN_PROGRESS) AND b.startTime < :end AND b.endTime > :start")
     List<Booking> findOverlappingConfirmed(
             @Param("resourceId") UUID resourceId,
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end);
 
-    @Query("SELECT b FROM Booking b WHERE b.resource.id = :resourceId AND b.status IN (com.mrlbs.booking.BookingStatus.CONFIRMED, com.mrlbs.booking.BookingStatus.PENDING, com.mrlbs.booking.BookingStatus.PENDING_APPROVAL, com.mrlbs.booking.BookingStatus.IN_PROGRESS) AND b.startTime < :bufferEnd AND b.endTime > :bufferStart")
+    @Query("SELECT b FROM Booking b WHERE b.resource.id = :resourceId AND b.status IN (com.mrlbs.booking.BookingStatus.CONFIRMED, com.mrlbs.booking.BookingStatus.IN_PROGRESS) AND b.startTime < :bufferEnd AND b.endTime > :bufferStart")
     List<Booking> findConfirmedInWindow(
             @Param("resourceId") UUID resourceId,
             @Param("bufferStart") LocalDateTime bufferStart,
@@ -52,7 +52,7 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             @Param("resourceId") UUID resourceId,
             @Param("statuses") List<BookingStatus> statuses);
 
-    @Query("SELECT DISTINCT b.resource.id FROM Booking b WHERE b.status IN (com.mrlbs.booking.BookingStatus.CONFIRMED, com.mrlbs.booking.BookingStatus.PENDING, com.mrlbs.booking.BookingStatus.PENDING_APPROVAL, com.mrlbs.booking.BookingStatus.IN_PROGRESS) AND b.startTime < :end AND b.endTime > :start")
+    @Query("SELECT DISTINCT b.resource.id FROM Booking b WHERE b.status IN (com.mrlbs.booking.BookingStatus.CONFIRMED, com.mrlbs.booking.BookingStatus.IN_PROGRESS) AND b.startTime < :end AND b.endTime > :start")
     List<UUID> findBookedResourceIdsInSlot(
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end);

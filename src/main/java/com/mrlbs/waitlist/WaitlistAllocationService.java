@@ -173,37 +173,21 @@ public class WaitlistAllocationService {
             }
 
             // 8. Allocation execution:
-            BookingRule rule = resource.getBookingRule();
-            boolean requiresApproval = rule != null && rule.getBookingPolicy() == BookingPolicy.APPROVAL_REQUIRED;
-
-            if (requiresApproval) {
-                // "Preserve APPROVAL_REQUIRED behavior; never bypass admin approval or automatically confirm such bookings through FCFS allocation."
-                booking.setStatus(BookingStatus.PENDING_APPROVAL);
-                booking.setCreditCost(preservedCost);
-                Booking savedBooking = bookingRepository.save(booking);
-
-                candidate.setStatus(BookingStatus.CONFIRMED);
-                candidate.setLeftAt(LocalDateTime.now());
-                waitlistEntryRepository.save(candidate);
-
-                allocatedBookings.add(savedBooking);
-            } else {
-                // Policy is OPEN: Deduct credits exactly once, only if not already deducted at IN_PROGRESS
-                if (!alreadyPaid && account != null) {
-                    account.debit(preservedCost);
-                    creditAccountRepository.save(account);
-                }
-
-                booking.setStatus(BookingStatus.CONFIRMED);
-                booking.setCreditCost(preservedCost);
-                Booking savedBooking = bookingRepository.save(booking);
-
-                candidate.setStatus(BookingStatus.CONFIRMED);
-                candidate.setLeftAt(LocalDateTime.now());
-                waitlistEntryRepository.save(candidate);
-
-                allocatedBookings.add(savedBooking);
+            // Deduct credits exactly once, only if not already deducted at IN_PROGRESS
+            if (!alreadyPaid && account != null) {
+                account.debit(preservedCost);
+                creditAccountRepository.save(account);
             }
+
+            booking.setStatus(BookingStatus.CONFIRMED);
+            booking.setCreditCost(preservedCost);
+            Booking savedBooking = bookingRepository.save(booking);
+
+            candidate.setStatus(BookingStatus.CONFIRMED);
+            candidate.setLeftAt(LocalDateTime.now());
+            waitlistEntryRepository.save(candidate);
+
+            allocatedBookings.add(savedBooking);
         }
 
         return allocatedBookings;

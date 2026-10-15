@@ -418,8 +418,10 @@ public class WaitlistOfferExpiryAndRefundTests {
         firstBooking.setMemberId(memberA.getId());
         bookingRepository.save(firstBooking);
 
-        // User B joins waitlist
+        // User B submits booking (sets PENDING_APPROVAL) and admin approves to join waitlist
         Booking bookingB = bookingService.submit(memberBEmail, new BookingRequest(approvalResource.getId(), start, end));
+        assertEquals(BookingStatus.PENDING_APPROVAL, bookingB.getStatus());
+        bookingService.reviewApprovalDecision("admin@iitk.ac.in", bookingB.getId(), true);
 
         // Slot released
         bookingService.deleteBooking(memberAEmail, firstBooking.getId());
@@ -429,7 +431,7 @@ public class WaitlistOfferExpiryAndRefundTests {
         // User B accepts
         Booking accepted = waitlistOfferService.acceptOffer(memberBEmail, offerB.getId());
 
-        // Must transition to PENDING_APPROVAL without bypassing admin approval
-        assertEquals(BookingStatus.PENDING_APPROVAL, accepted.getStatus());
+        // Must transition directly to CONFIRMED (admin already approved to join waitlist)
+        assertEquals(BookingStatus.CONFIRMED, accepted.getStatus());
     }
 }
