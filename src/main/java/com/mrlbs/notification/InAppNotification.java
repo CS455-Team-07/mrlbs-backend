@@ -49,6 +49,10 @@ public class InAppNotification {
         this.createdAt = LocalDateTime.now();
     }
 
+    public InAppNotification(UUID memberId, String title, String message) {
+        this(memberId, title, message, null);
+    }
+
     @PrePersist
     protected void onCreate() {
         if (this.createdAt == null) {

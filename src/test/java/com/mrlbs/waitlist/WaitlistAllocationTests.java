@@ -432,23 +432,14 @@ public class WaitlistAllocationTests {
         // User A cancels slot
         bookingService.deleteBooking(memberAEmail, bookingA.getId());
 
-        // Waitlist allocation must transition bookingB to PENDING_APPROVAL, NOT CONFIRMED!
+        // Waitlist allocation transitions bookingB directly to CONFIRMED (admin already approved joining waitlist)
         Booking allocatedB = bookingRepository.findById(bookingB.getId()).orElseThrow();
-        assertEquals(BookingStatus.PENDING_APPROVAL, allocatedB.getStatus(),
-                "APPROVAL_REQUIRED resource bookings must transition to PENDING_APPROVAL");
+        assertEquals(BookingStatus.CONFIRMED, allocatedB.getStatus(),
+                "APPROVAL_REQUIRED resource bookings must transition directly to CONFIRMED without second admin review");
 
-        // Credits must NOT be debited yet
-        CreditAccount balancePending = creditAccountRepository.findById(memberBEmail).orElseThrow();
-        assertEquals(balanceBeforeApproval, balancePending.getBalance(),
-                "Credits must not be debited while in PENDING_APPROVAL");
-
-        // Admin approves the booking
-        Booking approvedB = bookingService.reviewApprovalDecision(adminEmail, allocatedB.getId(), true);
-        assertEquals(BookingStatus.CONFIRMED, approvedB.getStatus());
-
-        // Credits debited exactly once upon admin confirmation
-        CreditAccount balanceAfterApproved = creditAccountRepository.findById(memberBEmail).orElseThrow();
-        assertEquals(balanceBeforeApproval.subtract(new BigDecimal("10")), balanceAfterApproved.getBalance(),
+        // Credits debited exactly once upon confirmation
+        CreditAccount balanceAfterAllocated = creditAccountRepository.findById(memberBEmail).orElseThrow();
+        assertEquals(balanceBeforeApproval.subtract(new BigDecimal("10")), balanceAfterAllocated.getBalance(),
                 "Credits must be debited exactly once upon confirmation");
     }
 }

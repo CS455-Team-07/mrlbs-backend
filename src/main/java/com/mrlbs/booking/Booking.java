@@ -60,6 +60,9 @@ public class Booking {
     @Column(name = "cancelled_at")
     private LocalDateTime cancelledAt;
 
+    @Column(name = "rejection_reason", length = 1000)
+    private String rejectionReason;
+
     protected Booking() {
     }
 
@@ -94,6 +97,10 @@ public class Booking {
     public LocalDateTime getCancelledAt() { return cancelledAt; }
 
     public void setCancelledAt(LocalDateTime cancelledAt) { this.cancelledAt = cancelledAt; }
+
+    public String getRejectionReason() { return rejectionReason; }
+
+    public void setRejectionReason(String rejectionReason) { this.rejectionReason = rejectionReason; }
 
     @PrePersist
     private void onCreate() {

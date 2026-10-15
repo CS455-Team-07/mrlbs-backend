@@ -20,11 +20,19 @@ public class WaitlistService {
     private final MemberRepository memberRepository;
     private final BookingRepository bookingRepository;
     private final com.mrlbs.booking.credit.CreditAccountRepository creditAccountRepository;
+    private final com.mrlbs.notification.InAppNotificationRepository notificationRepository;
 
     public WaitlistService(WaitlistEntryRepository waitlistRepository,
                            MemberRepository memberRepository,
                            BookingRepository bookingRepository) {
-        this(waitlistRepository, memberRepository, bookingRepository, null);
+        this(waitlistRepository, memberRepository, bookingRepository, null, null);
+    }
+
+    public WaitlistService(WaitlistEntryRepository waitlistRepository,
+                           MemberRepository memberRepository,
+                           BookingRepository bookingRepository,
+                           com.mrlbs.booking.credit.CreditAccountRepository creditAccountRepository) {
+        this(waitlistRepository, memberRepository, bookingRepository, creditAccountRepository, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -32,11 +40,14 @@ public class WaitlistService {
                            MemberRepository memberRepository,
                            BookingRepository bookingRepository,
                            @org.springframework.beans.factory.annotation.Autowired(required = false)
-                           com.mrlbs.booking.credit.CreditAccountRepository creditAccountRepository) {
+                           com.mrlbs.booking.credit.CreditAccountRepository creditAccountRepository,
+                           @org.springframework.beans.factory.annotation.Autowired(required = false)
+                           com.mrlbs.notification.InAppNotificationRepository notificationRepository) {
         this.waitlistRepository = waitlistRepository;
         this.memberRepository = memberRepository;
         this.bookingRepository = bookingRepository;
         this.creditAccountRepository = creditAccountRepository;
+        this.notificationRepository = notificationRepository;
     }
 
     public long calculateQueuePosition(WaitlistEntry target) {
@@ -125,6 +136,14 @@ public class WaitlistService {
                             creditAccountRepository.findForUpdate(memberEmail).ifPresent(account -> {
                                 account.credit(booking.getCreditCost());
                                 creditAccountRepository.save(account);
+
+                                if (notificationRepository != null && booking.getMemberId() != null) {
+                                    notificationRepository.save(new com.mrlbs.notification.InAppNotification(
+                                            booking.getMemberId(),
+                                            "Credits Refunded",
+                                            "Refunded " + booking.getCreditCost() + " credits for waitlist cancellation. Your new balance is " + account.getBalance() + " credits."
+                                    ));
+                                }
                             });
                         }
                     }

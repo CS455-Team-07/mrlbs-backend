@@ -16,17 +16,24 @@ public record BookingResponse(
         UUID memberId,
         Boolean waitlist,
         Long queuePosition,
-        BigDecimal memberBalance
+        BigDecimal memberBalance,
+        String rejectionReason
 ) {
     public BookingResponse(UUID id, UUID resourceId, String resourceName, LocalDateTime startTime, LocalDateTime endTime,
                            BookingStatus status, BigDecimal creditCost, Boolean clashes, UUID memberId) {
-        this(id, resourceId, resourceName, startTime, endTime, status, creditCost, clashes, memberId, false, null, null);
+        this(id, resourceId, resourceName, startTime, endTime, status, creditCost, clashes, memberId, false, null, null, null);
     }
 
     public BookingResponse(UUID id, UUID resourceId, String resourceName, LocalDateTime startTime, LocalDateTime endTime,
                            BookingStatus status, BigDecimal creditCost, Boolean clashes, UUID memberId,
                            Boolean waitlist, Long queuePosition) {
-        this(id, resourceId, resourceName, startTime, endTime, status, creditCost, clashes, memberId, waitlist, queuePosition, null);
+        this(id, resourceId, resourceName, startTime, endTime, status, creditCost, clashes, memberId, waitlist, queuePosition, null, null);
+    }
+
+    public BookingResponse(UUID id, UUID resourceId, String resourceName, LocalDateTime startTime, LocalDateTime endTime,
+                           BookingStatus status, BigDecimal creditCost, Boolean clashes, UUID memberId,
+                           Boolean waitlist, Long queuePosition, BigDecimal memberBalance) {
+        this(id, resourceId, resourceName, startTime, endTime, status, creditCost, clashes, memberId, waitlist, queuePosition, memberBalance, null);
     }
 
     public static BookingResponse from(Booking booking) {
@@ -63,6 +70,7 @@ public record BookingResponse(
                 booking.getMemberId(),
                 waitlist,
                 queuePosition,
-                memberBalance);
+                memberBalance,
+                booking.getRejectionReason());
     }
 }

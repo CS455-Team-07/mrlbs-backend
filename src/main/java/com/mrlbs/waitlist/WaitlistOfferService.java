@@ -280,22 +280,13 @@ public class WaitlistOfferService {
         }
 
         // 5. Deduct credits exactly once and update booking
-        BookingRule rule = resource.getBookingRule();
-        boolean requiresApproval = rule != null && rule.getBookingPolicy() == BookingPolicy.APPROVAL_REQUIRED;
-
-        if (requiresApproval) {
-            booking.setStatus(BookingStatus.PENDING_APPROVAL);
-            booking.setCreditCost(preservedCost);
-        } else {
-            if (!alreadyPaid && preservedCost.signum() > 0 && account != null) {
-                account.debit(preservedCost);
-                creditAccountRepository.save(account);
-            }
-
-            booking.setStatus(BookingStatus.CONFIRMED);
-            booking.setCreditCost(preservedCost);
+        if (!alreadyPaid && preservedCost.signum() > 0 && account != null) {
+            account.debit(preservedCost);
+            creditAccountRepository.save(account);
         }
 
+        booking.setStatus(BookingStatus.CONFIRMED);
+        booking.setCreditCost(preservedCost);
         Booking confirmedBooking = bookingRepository.save(booking);
 
         // 6. Update waitlist entry and offer response

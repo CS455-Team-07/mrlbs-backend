@@ -115,9 +115,9 @@ class EndToEndAiReviewFlowTest {
         assertNotNull(booking);
         assertEquals(BookingStatus.PENDING_APPROVAL, booking.getStatus(), "Booking must be PENDING_APPROVAL");
 
-        // Verify credit deduction
+        // Verify credits NOT deducted at submission time
         CreditAccount updatedAccount = creditAccountRepository.findForUpdate(memberEmail).orElseThrow();
-        assertTrue(updatedAccount.getBalance().compareTo(BigDecimal.valueOf(1000.0)) < 0, "Credits must be debited");
+        assertEquals(0, updatedAccount.getBalance().compareTo(BigDecimal.valueOf(1000.0)), "Credits must NOT be debited at submission time");
 
         // 4. Step 2: Verify Transactional Outbox Event & Placeholder Review
         List<BookingOutboxEvent> outboxEvents = outboxRepository.findByBookingId(booking.getId());
@@ -186,6 +186,9 @@ class EndToEndAiReviewFlowTest {
         Booking confirmedBooking = bookingRepository.findById(booking.getId()).orElseThrow();
         assertEquals(BookingStatus.CONFIRMED, confirmedBooking.getStatus(),
                 "Booking status must transition to CONFIRMED only after Admin approval");
+
+        CreditAccount approvedAccount = creditAccountRepository.findForUpdate(memberEmail).orElseThrow();
+        assertTrue(approvedAccount.getBalance().compareTo(BigDecimal.valueOf(1000.0)) < 0, "Credits must be debited upon admin approval");
 
         // Verify AI review remains persisted with completed audit details
         BookingAiReview finalReview = reviewRepository.findByBookingId(booking.getId()).orElseThrow();

@@ -55,7 +55,8 @@ public class BookingController {
     }
 
     public record ApprovalRequestResponse(UUID id, String memberEmail, String resourceName, String resourceType,
-                                          LocalDateTime startTime, LocalDateTime endTime, BookingStatus status,
+                                          LocalDateTime startTime, LocalDateTime endTime, LocalDateTime createdAt,
+                                          BookingStatus status,
                                           com.mrlbs.ai.review.AiReviewSummaryResponse aiReview) {
         public static ApprovalRequestResponse from(Booking booking, String memberEmail, com.mrlbs.ai.review.AiReviewSummaryResponse aiReview) {
             String resourceName = booking.getResource() != null ? booking.getResource().getName() : "Archived Resource";
@@ -67,6 +68,7 @@ public class BookingController {
                     resourceType,
                     booking.getStartTime(),
                     booking.getEndTime(),
+                    booking.getCreatedAt(),
                     booking.getStatus(),
                     aiReview);
         }
@@ -88,15 +90,19 @@ public class BookingController {
                     HttpStatus.UNAUTHORIZED, "Authentication required to submit booking");
         }
         Booking booking = bookingService.submit(email, request);
-        boolean isWaitlist = booking.getStatus() == BookingStatus.IN_PROGRESS;
+        boolean isWaitlist = booking.getStatus() == BookingStatus.IN_PROGRESS
+                || (waitlistEntryRepository != null && waitlistEntryRepository.findByBookingId(booking.getId()).isPresent());
+        boolean clashes = isWaitlist || bookingService.checkClash(booking);
         Long queuePos = null;
         if (isWaitlist && waitlistService != null && waitlistEntryRepository != null) {
             var entryOpt = waitlistEntryRepository.findByBookingId(booking.getId());
             if (entryOpt.isPresent()) {
                 queuePos = waitlistService.calculateQueuePosition(entryOpt.get());
             }
+        } else if (clashes && waitlistService != null && booking.getResource() != null) {
+            queuePos = waitlistService.getNextQueuePosition(booking.getResource().getId(), booking.getStartTime(), booking.getEndTime());
         }
-        return BookingResponse.from(booking, isWaitlist, isWaitlist, queuePos);
+        return BookingResponse.from(booking, clashes, isWaitlist, queuePos);
     }
 
     @PostMapping("/draft")
@@ -131,16 +137,20 @@ public class BookingController {
                     HttpStatus.UNAUTHORIZED, "Authentication required to confirm booking");
         }
         Booking confirmed = bookingService.confirmDraft(email, id);
-        boolean isWaitlist = confirmed.getStatus() == BookingStatus.IN_PROGRESS;
+        boolean isWaitlist = confirmed.getStatus() == BookingStatus.IN_PROGRESS
+                || (waitlistEntryRepository != null && waitlistEntryRepository.findByBookingId(confirmed.getId()).isPresent());
+        boolean clashes = isWaitlist || bookingService.checkClash(confirmed);
         Long queuePos = null;
         if (isWaitlist && waitlistService != null && waitlistEntryRepository != null) {
             var entryOpt = waitlistEntryRepository.findByBookingId(confirmed.getId());
             if (entryOpt.isPresent()) {
                 queuePos = waitlistService.calculateQueuePosition(entryOpt.get());
             }
+        } else if (clashes && waitlistService != null && confirmed.getResource() != null) {
+            queuePos = waitlistService.getNextQueuePosition(confirmed.getResource().getId(), confirmed.getStartTime(), confirmed.getEndTime());
         }
         BigDecimal memberBalance = bookingService.getMemberBalance(email);
-        return BookingResponse.from(confirmed, isWaitlist, isWaitlist, queuePos, memberBalance);
+        return BookingResponse.from(confirmed, clashes, isWaitlist, queuePos, memberBalance);
     }
 
     @org.springframework.web.bind.annotation.DeleteMapping("/{id}")
@@ -220,20 +230,30 @@ public class BookingController {
                 .orElse(org.springframework.http.ResponseEntity.notFound().build());
     }
 
+    public record RejectionRequest(String reason) {}
+
     @PostMapping("/{id}/approve")
     @PreAuthorize("hasRole('ADMIN')")
     public BookingResponse approve(@AuthenticationPrincipal OidcUser user,
                                   @org.springframework.web.bind.annotation.PathVariable UUID id) {
-        Booking approved = bookingService.reviewApprovalDecision(user.getEmail(), id, true);
+        Booking approved = bookingService.reviewApprovalDecision(user.getEmail(), id, true, null);
         return BookingResponse.from(approved);
     }
 
     @PostMapping("/{id}/reject")
     @PreAuthorize("hasRole('ADMIN')")
     public BookingResponse reject(@AuthenticationPrincipal OidcUser user,
-                                 @org.springframework.web.bind.annotation.PathVariable UUID id) {
-        Booking rejected = bookingService.reviewApprovalDecision(user.getEmail(), id, false);
+                                 @org.springframework.web.bind.annotation.PathVariable UUID id,
+                                 @RequestBody(required = false) RejectionRequest request) {
+        String reason = (request != null && request.reason() != null && !request.reason().isBlank())
+                ? request.reason()
+                : "Rejected by administrator";
+        Booking rejected = bookingService.reviewApprovalDecision(user.getEmail(), id, false, reason);
         return BookingResponse.from(rejected);
+    }
+
+    public BookingResponse reject(OidcUser user, UUID id) {
+        return reject(user, id, null);
     }
 
     private String resolveMemberEmail(Booking booking) {
