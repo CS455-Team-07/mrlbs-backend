@@ -509,3 +509,33 @@ Pending human review.
 
 The decision and the corresponding in-app message commit atomically, so a rolled-back decision cannot appear in the member inbox.
 The merged branch passed the backend suite with the two live RabbitMQ classes excluded.
+---
+
+#### 2026-10-15 — BOOK-115 FCFS performance verification
+
+**Task / Context:**
+Review the local BOOK-115 implementation and prepare a pull request for the FCFS performance acceptance target.
+
+**Prompt:**
+The user asked to review their implementation and create a PR. Summary: add the BOOK-115 100+ concurrent request performance verification, inspect it, and submit it for review.
+
+**AI Output:**
+Reviewed the new load test, then changed its measurement to exercise the booking HTTP controller, Spring Security, validation, and persistence. Kept 120 simultaneous requests divided across 20 resources, with six distinct slots per resource. Ran the focused Maven test; all 120 requests returned successful confirmations, but local p95 latency was approximately 2.7 seconds, exceeding the 2-second target.
+
+**Student/Team Evaluation:**
+Pending human review.
+
+**Errors / Risks / Hallucinations:**
+The H2 test profile is not a production PostgreSQL benchmark, and its observed latency may vary across environments. The local run did not meet the target, so the requirement cannot be claimed as passing.
+
+**Changes Made After Evaluation:**
+Updated `src/test/java/com/mrlbs/booking/FcfsPerformanceLoadTest.java` to measure the application HTTP path, retain concurrent per-resource contention, and always shut down worker threads. Isolated the test Spring context after the class.
+
+**Final Accepted Artifact:**
+Draft BOOK-115 pull request with a repeatable application-path load test and the local performance failure recorded for review.
+
+**Decision:**
+Modified; awaiting human review.
+
+**Reason:**
+The original test only timed direct service calls and assigned each request a unique resource-slot pair. The revised test exercises the app request path and shares resources across simultaneous callers; its measured performance remains above the requirement locally.
