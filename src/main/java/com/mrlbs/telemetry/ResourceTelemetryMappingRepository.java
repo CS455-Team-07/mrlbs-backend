@@ -9,4 +9,5 @@ public interface ResourceTelemetryMappingRepository extends JpaRepository<Resour
     Optional<ResourceTelemetryMapping> findByResourceId(UUID resourceId);
     Optional<ResourceTelemetryMapping> findByExternalResourceId(String externalResourceId);
     boolean existsByResourceId(UUID resourceId);
+    boolean existsByExternalResourceId(String externalResourceId);
 }
