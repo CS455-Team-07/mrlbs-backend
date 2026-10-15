@@ -167,11 +167,13 @@ The backend incorporates an asynchronous, event-driven AI Request Review Agent t
    - Upon transaction commit (`TransactionSynchronizationManager.afterCommit`), the event is dispatched to RabbitMQ with publisher confirms.
    - Consumers acknowledge messages only after evaluation and persistence are complete. Dead-letter exchanges (DLX) handle poison messages without blocking queue throughput.
 
-2. **Integration with External Hardware Telemetry:**
+2. **Integration with Simulated Hardware Telemetry (Demonstration / Mock Service):**
    - Resources map to physical hardware identifiers via `resource_telemetry_mappings` (Flyway migration `V8`).
-   - The backend queries the standalone **Resource Telemetry Service** (`http://localhost:8085`) to inspect:
+   - Because live institutional access to real IIT Kanpur cluster hardware telemetry APIs is restricted/unavailable, a dedicated standalone **Resource Telemetry Mock Service** was built specifically for feature implementation and realistic demonstration (deployed on Render at `https://resource-telemetry-service.onrender.com` or local fallback `http://localhost:8085`).
+   - The backend queries this mock service to simulate real-world cluster telemetry:
      - **Present Operating Health Snapshot:** point-in-time operating status, GPU/memory utilization %, temperature, power draw.
      - **Exact-Interval Historical Telemetry:** hardware metrics captured strictly during eligible completed past reservations.
+     - **Live Monitoring Dashboard:** A visual dark-mode metrics and telemetry dashboard is available at `https://resource-telemetry-service.onrender.com/`.
 
 3. **Strict Non-Punitive & Attribution Boundaries:**
    - **Device-Level Attribution:** Telemetry measures hardware device metrics during exclusive windows; individual job or user-level attribution is not captured.
