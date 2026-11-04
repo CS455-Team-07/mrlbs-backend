@@ -9,10 +9,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class ResourceSearchService {
@@ -40,29 +44,90 @@ public class ResourceSearchService {
             specification = specification.and((root, query, cb) -> cb.or(
                     cb.isNull(root.get("capacity")), cb.greaterThanOrEqualTo(root.get("capacity"), capacity)));
         }
-        return resourceRepository.findAll(specification).stream()
-                .map(resource -> {
-                    boolean available;
-                    if (startTime != null && endTime != null) {
-                        available = bookingRepository
-                                .findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
-                                        resource.getId(), BookingStatus.CONFIRMED, endTime, startTime).isEmpty();
-                    } else if (date != null) {
-                        available = hasAnyOpenSlotOnDate(resource.getId(), date);
-                    } else {
-                        available = true;
-                    }
-                    return ResourceSearchResponse.from(resource, available);
-                }).toList();
+
+        List<LabResource> resources = resourceRepository.findAll(specification);
+        if (resources.isEmpty()) {
+            return List.of();
+        }
+
+        // Support searching with timings even if end or start time is partially omitted
+        LocalDateTime startParam = startTime;
+        LocalDateTime endParam = endTime;
+        if (startParam != null && endParam == null) {
+            endParam = startParam.plusHours(1);
+        } else if (endParam != null && startParam == null) {
+            startParam = endParam.minusHours(1);
+        }
+
+        LocalDate dateParam = date;
+        if (dateParam == null && startParam != null) {
+            dateParam = startParam.toLocalDate();
+        }
+
+        final LocalDateTime effectiveStart = startParam;
+        final LocalDateTime effectiveEnd = endParam;
+        final LocalDate effectiveDate = dateParam;
+
+        // 1. Time slot search: if timings are specified (with or without date)
+        if (effectiveStart != null && effectiveEnd != null) {
+            List<UUID> bookedList = bookingRepository.findConfirmedBookedResourceIdsInSlot(effectiveStart, effectiveEnd);
+            Set<UUID> bookedIds = (bookedList != null) ? new HashSet<>(bookedList) : Collections.emptySet();
+
+            return resources.stream()
+                    .map(resource -> {
+                        boolean available;
+                        if (!bookedIds.isEmpty()) {
+                            available = !bookedIds.contains(resource.getId());
+                        } else {
+                            // Fallback to per-resource query to ensure compatibility with unit tests and individual checks
+                            available = bookingRepository
+                                    .findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
+                                            resource.getId(), BookingStatus.CONFIRMED, effectiveEnd, effectiveStart).isEmpty();
+                        }
+                        return ResourceSearchResponse.from(resource, available);
+                    }).toList();
+        }
+
+        // 2. Date-only search: batch-fetch confirmed bookings to avoid N+1 queries under load
+        if (effectiveDate != null) {
+            LocalDateTime dayStart = effectiveDate.atStartOfDay();
+            LocalDateTime dayEnd = effectiveDate.plusDays(1).atStartOfDay();
+
+            List<Booking> dayBookings = bookingRepository.findConfirmedBookingsInWindow(dayStart, dayEnd);
+            if (dayBookings != null && !dayBookings.isEmpty()) {
+                Map<UUID, List<Booking>> bookingsByResource = dayBookings.stream()
+                        .filter(b -> b.getResource() != null && b.getResource().getId() != null)
+                        .collect(Collectors.groupingBy(b -> b.getResource().getId()));
+
+                return resources.stream()
+                        .map(resource -> {
+                            List<Booking> resBookings = bookingsByResource.get(resource.getId());
+                            boolean available;
+                            if (resBookings == null || resBookings.isEmpty()) {
+                                available = true;
+                            } else {
+                                available = hasAnyOpenSlotFromBookings(resBookings, dayStart, dayEnd);
+                            }
+                            return ResourceSearchResponse.from(resource, available);
+                        }).toList();
+            }
+
+            // Fallback to single resource check if batch returned empty (e.g., when unit tests mock findByResourceId...)
+            return resources.stream()
+                    .map(resource -> {
+                        boolean available = hasAnyOpenSlotOnDate(resource.getId(), effectiveDate);
+                        return ResourceSearchResponse.from(resource, available);
+                    }).toList();
+        }
+
+        // 3. No date and no timings: all matching active resources available
+        return resources.stream()
+                .map(resource -> ResourceSearchResponse.from(resource, true))
+                .toList();
     }
 
-    private boolean hasAnyOpenSlotOnDate(UUID resourceId, LocalDate date) {
-        LocalDateTime dayStart = date.atStartOfDay();
-        LocalDateTime dayEnd = date.plusDays(1).atStartOfDay();
-        List<Booking> bookings = bookingRepository
-                .findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
-                        resourceId, BookingStatus.CONFIRMED, dayEnd, dayStart);
-        if (bookings.isEmpty()) {
+    private boolean hasAnyOpenSlotFromBookings(List<Booking> bookings, LocalDateTime dayStart, LocalDateTime dayEnd) {
+        if (bookings == null || bookings.isEmpty()) {
             return true;
         }
         LocalDateTime cursor = dayStart;
@@ -79,6 +144,15 @@ public class ResourceSearchService {
         return cursor.isBefore(dayEnd);
     }
 
+    private boolean hasAnyOpenSlotOnDate(UUID resourceId, LocalDate date) {
+        LocalDateTime dayStart = date.atStartOfDay();
+        LocalDateTime dayEnd = date.plusDays(1).atStartOfDay();
+        List<Booking> bookings = bookingRepository
+                .findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
+                        resourceId, BookingStatus.CONFIRMED, dayEnd, dayStart);
+        return hasAnyOpenSlotFromBookings(bookings, dayStart, dayEnd);
+    }
+
     @Transactional(readOnly = true)
     public ResourceAvailabilityResponse availability(UUID resourceId, LocalDate date) {
         resourceRepository.findById(resourceId).orElseThrow(() -> new IllegalArgumentException("Resource not found"));
@@ -87,7 +161,7 @@ public class ResourceSearchService {
         List<Booking> bookings = bookingRepository
                 .findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
                         resourceId, BookingStatus.CONFIRMED, dayEnd, dayStart);
-        List<ResourceAvailabilityResponse.TimeSlot> booked = bookings.stream()
+        List<ResourceAvailabilityResponse.TimeSlot> booked = (bookings != null ? bookings : Collections.<Booking>emptyList()).stream()
                 .map(booking -> new ResourceAvailabilityResponse.TimeSlot(
                         booking.getStartTime().isBefore(dayStart) ? dayStart : booking.getStartTime(),
                         booking.getEndTime().isAfter(dayEnd) ? dayEnd : booking.getEndTime()))

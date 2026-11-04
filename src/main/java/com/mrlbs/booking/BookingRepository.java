@@ -56,4 +56,14 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     List<UUID> findBookedResourceIdsInSlot(
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end);
+
+    @Query("SELECT DISTINCT b.resource.id FROM Booking b WHERE b.status = com.mrlbs.booking.BookingStatus.CONFIRMED AND b.startTime < :end AND b.endTime > :start")
+    List<UUID> findConfirmedBookedResourceIdsInSlot(
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end);
+
+    @Query("SELECT b FROM Booking b WHERE b.status = com.mrlbs.booking.BookingStatus.CONFIRMED AND b.startTime < :dayEnd AND b.endTime > :dayStart ORDER BY b.startTime ASC")
+    List<Booking> findConfirmedBookingsInWindow(
+            @Param("dayStart") LocalDateTime dayStart,
+            @Param("dayEnd") LocalDateTime dayEnd);
 }
