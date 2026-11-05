@@ -10,11 +10,20 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $scriptDir
 
 # 1. Stop any existing process running on port 8080
-$existingConn = Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue
-if ($existingConn) {
-    Write-Host "[*] Freeing port 8080..." -ForegroundColor Yellow
-    Stop-Process -Id $existingConn.OwningProcess -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 1
+try {
+    $existingConn = Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue
+    if ($existingConn) {
+        Write-Host "[*] Freeing port 8080..." -ForegroundColor Yellow
+        $pids = $existingConn | Select-Object -ExpandProperty OwningProcess -Unique
+        foreach ($pidToStop in $pids) {
+            if ($pidToStop -and $pidToStop -ne 0) {
+                Stop-Process -Id $pidToStop -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Start-Sleep -Seconds 1
+    }
+} catch {
+    # Proceed even if net connection query cannot be performed
 }
 
 # 2. Locate and load postgres.local.env
@@ -41,10 +50,21 @@ if (Test-Path $envFile) {
     Write-Host "[!] Warning: postgres.local.env not found. Using defaults in application-postgres.yml" -ForegroundColor Yellow
 }
 
-# 3. Ensure target JAR exists; compile if missing
+# 3. Ensure target JAR exists and is up-to-date; compile if missing or modified
 $jarPath = Join-Path $scriptDir "target\mrlbs-backend-0.0.1-SNAPSHOT.jar"
-if (-not (Test-Path $jarPath)) {
-    Write-Host "[*] Target JAR not found. Building with Maven..." -ForegroundColor Cyan
+$needsBuild = -not (Test-Path $jarPath)
+
+if (-not $needsBuild) {
+    $jarDate = (Get-Item $jarPath).LastWriteTime
+    $newerSrc = Get-ChildItem -Path (Join-Path $scriptDir "src") -Recurse -File | Where-Object { $_.LastWriteTime -gt $jarDate } | Select-Object -First 1
+    if ($newerSrc) {
+        Write-Host "[*] Source modifications detected. Rebuilding target JAR with Maven..." -ForegroundColor Cyan
+        $needsBuild = $true
+    }
+}
+
+if ($needsBuild) {
+    Write-Host "[*] Building target JAR with Maven..." -ForegroundColor Cyan
     & ".\mvnw.cmd" package -DskipTests
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[-] Build failed." -ForegroundColor Red

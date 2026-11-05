@@ -351,6 +351,12 @@ public class BookingService {
         if (booking.getStatus() == BookingStatus.CANCELLED) {
             return booking;
         }
+        if (booking.getStatus() == BookingStatus.CONFIRMED && booking.getStartTime() != null) {
+            LocalDateTime cutoff = booking.getStartTime().minusHours(2);
+            if (!LocalDateTime.now().isBefore(cutoff)) {
+                throw new IllegalStateException("Confirmed bookings cannot be cancelled within 2 hours of the scheduled start time.");
+            }
+        }
         boolean wasConfirmedOrApproved = booking.getStatus() == BookingStatus.CONFIRMED
                 || booking.getStatus() == BookingStatus.PENDING_APPROVAL
                 || booking.getStatus() == BookingStatus.PENDING;

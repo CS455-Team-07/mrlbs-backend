@@ -296,7 +296,7 @@ class BookingServiceTests {
     @Test
     void pendingApprovalQueueOrdersSameResourceAndSlotBySubmissionTime() {
         LabResource lectureHall = mock(LabResource.class);
-        when(lectureHall.getId()).thenReturn(UUID.randomUUID());
+        lenient().when(lectureHall.getId()).thenReturn(UUID.randomUUID());
         when(lectureHall.getType()).thenReturn("Lecture Hall");
 
         LocalDateTime slotStart = LocalDateTime.now().plusDays(2).withHour(10).withMinute(0).withSecond(0).withNano(0);
@@ -511,6 +511,25 @@ class BookingServiceTests {
         service.deleteBooking("member@iitk.ac.in", draftId);
 
         verify(bookingRepository).delete(draft);
+    }
+
+    @Test
+    void cancelConfirmedBookingWithinTwoHoursThrowsIllegalStateException() {
+        UUID bookingId = UUID.randomUUID();
+        UUID memberId = UUID.nameUUIDFromBytes("member@iitk.ac.in".getBytes());
+        // Booking starts in 1 hour (less than 2 hours away)
+        var start = LocalDateTime.now().plusHours(1);
+        Booking confirmed = new Booking("member@iitk.ac.in", resource, start, start.plusHours(1),
+                BookingStatus.CONFIRMED, new BigDecimal("4"));
+        confirmed.setId(bookingId);
+        confirmed.setMemberId(memberId);
+        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(confirmed));
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> service.deleteBooking("member@iitk.ac.in", bookingId));
+
+        assertTrue(ex.getMessage().contains("within 2 hours"));
+        verify(bookingRepository, never()).save(any());
     }
 
     @Test
