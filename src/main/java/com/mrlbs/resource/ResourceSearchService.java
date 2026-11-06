@@ -12,7 +12,9 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class ResourceSearchService {
@@ -40,33 +42,29 @@ public class ResourceSearchService {
             specification = specification.and((root, query, cb) -> cb.or(
                     cb.isNull(root.get("capacity")), cb.greaterThanOrEqualTo(root.get("capacity"), capacity)));
         }
-        return resourceRepository.findAll(specification).stream()
-                .map(resource -> {
-                    boolean available;
-                    if (startTime != null && endTime != null) {
-                        available = bookingRepository
-                                .findFirstByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
-                                        resource.getId(), BookingStatus.CONFIRMED, endTime, startTime).isEmpty();
-                    } else if (date != null) {
-                        available = hasAnyOpenSlotOnDate(resource.getId(), date);
-                    } else {
-                        available = true;
-                    }
-                    return ResourceSearchResponse.from(resource, available);
-                }).toList();
+        List<LabResource> resources = resourceRepository.findAll(specification);
+        boolean hasExactWindow = startTime != null && endTime != null;
+        if (resources.isEmpty() || (!hasExactWindow && date == null)) {
+            return resources.stream().map(resource -> ResourceSearchResponse.from(resource, true)).toList();
+        }
+        LocalDateTime windowStart = hasExactWindow ? startTime : date.atStartOfDay();
+        LocalDateTime windowEnd = hasExactWindow ? endTime : date.plusDays(1).atStartOfDay();
+        Map<UUID, List<BookingRepository.AvailabilityWindow>> windowsByResource = bookingRepository
+                .findAvailabilityWindows(resources.stream().map(LabResource::getId).toList(),
+                        BookingStatus.CONFIRMED, windowStart, windowEnd)
+                .stream().collect(Collectors.groupingBy(BookingRepository.AvailabilityWindow::getResourceId));
+
+        return resources.stream().map(resource -> {
+            var windows = windowsByResource.getOrDefault(resource.getId(), List.of());
+            boolean available = hasExactWindow ? windows.isEmpty() : hasOpenSlot(windows, windowStart, windowEnd);
+            return ResourceSearchResponse.from(resource, available);
+        }).toList();
     }
 
-    private boolean hasAnyOpenSlotOnDate(UUID resourceId, LocalDate date) {
-        LocalDateTime dayStart = date.atStartOfDay();
-        LocalDateTime dayEnd = date.plusDays(1).atStartOfDay();
-        List<Booking> bookings = bookingRepository
-                .findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
-                        resourceId, BookingStatus.CONFIRMED, dayEnd, dayStart);
-        if (bookings.isEmpty()) {
-            return true;
-        }
+    private boolean hasOpenSlot(List<BookingRepository.AvailabilityWindow> bookings,
+                                LocalDateTime dayStart, LocalDateTime dayEnd) {
         LocalDateTime cursor = dayStart;
-        for (Booking booking : bookings) {
+        for (var booking : bookings) {
             LocalDateTime bStart = booking.getStartTime().isBefore(dayStart) ? dayStart : booking.getStartTime();
             LocalDateTime bEnd = booking.getEndTime().isAfter(dayEnd) ? dayEnd : booking.getEndTime();
             if (bStart.isAfter(cursor)) {

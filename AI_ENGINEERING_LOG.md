@@ -365,3 +365,41 @@ Accepted
 
 **Reason:**
 It provides the required admin queue and queue count without broadening the work beyond the approval workflow.
+
+#### 2026-11-06 — Test evidence and reliability fixes
+
+**Task / Context**
+
+Collect verification evidence and fix meaningful defects on branches based on backend `main` at `024af0c` and frontend `main` at `bce1818`.
+
+**Prompt**
+
+The user requested unit, integration, system, adversarial, coverage, concurrency, security, performance, and recovery reports. They also requested evidence of at least five fixes, GitHub issues, and a pull request.
+
+**AI Output**
+
+Reproduced unauthorized AI review access across admin categories, simultaneous OTP reuse, misleading SMTP success, and query amplification on catalog search. Inspected the PostgreSQL profile and identified embedded credential defaults. Recorded the frontend baseline failures.
+
+**Student / Team Evaluation**
+
+Pending human review.
+
+**Errors / Risks / Hallucinations**
+
+Live AMQP tests and production infrastructure were outside the local runs. H2 concurrency and loopback latency differ from deployed PostgreSQL and network behavior. Credentials removed from the profile may remain in Git history and require rotation.
+
+**Changes Made After Evaluation**
+
+Restricted direct review reads by admin resource scope, made OTP consumption atomic, removed code logging and invalidated failed deliveries, required runtime database settings, and batched availability lookups. A strict Mockito test also needed an obsolete stub removed. The local JaCoCo run passed 159 backend tests, and Vitest passed 46 frontend tests.
+
+**Final Artifact / Output**
+
+`docs/verification-report.md`, the regression tests, and the five fixes tracked in GitHub issues #36 through #40.
+
+**Decision**
+
+Pending human review.
+
+**Reason**
+
+The report ties each production fix to a baseline failure or source inspection and provides reproducible commands for local verification.
