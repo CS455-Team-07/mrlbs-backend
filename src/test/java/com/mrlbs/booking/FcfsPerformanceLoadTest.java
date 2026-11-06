@@ -54,7 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *         (p95) value is asserted to be ≤ 2 000 ms.</li>
  * </ul>
  */
-@SpringBootTest
+@SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:mrlbs-fcfs-load-test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE")
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 public class FcfsPerformanceLoadTest {
