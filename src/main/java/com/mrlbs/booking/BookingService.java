@@ -116,10 +116,57 @@ public class BookingService {
         this.waitlistService = waitlistService;
     }
 
+    @Transactional
+    public void syncMemberWeeklyCreditCycle(String email) {
+        if (email == null || email.isBlank() || memberRepository == null || creditAccountRepository == null || bookingRepository == null) {
+            return;
+        }
+        String cleanEmail = email.trim().toLowerCase();
+        var memberOpt = memberRepository.findByEmail(cleanEmail);
+        if (memberOpt.isEmpty()) {
+            return;
+        }
+        com.mrlbs.member.Member member = memberOpt.get();
+        if (member.getCreatedAt() == null) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime cycleStart = com.mrlbs.member.MemberService.calculateCurrentCycleStart(member.getCreatedAt(), now);
+
+        List<Booking> memberBookings = bookingRepository.findByMemberIdOrderByStartTimeDesc(member.getId());
+        BigDecimal spentThisCycle = BigDecimal.ZERO;
+        if (memberBookings != null) {
+            for (Booking b : memberBookings) {
+                if (b == null) continue;
+                LocalDateTime bookingCreation = b.getCreatedAt() != null ? b.getCreatedAt() : b.getStartTime();
+                if (bookingCreation != null && !bookingCreation.isBefore(cycleStart)) {
+                    if (b.getStatus() != BookingStatus.CANCELLED && b.getStatus() != BookingStatus.REJECTED) {
+                        BigDecimal cost = b.getCreditCost();
+                        if (cost != null && cost.signum() > 0) {
+                            spentThisCycle = spentThisCycle.add(cost);
+                        }
+                    }
+                }
+            }
+        }
+
+        BigDecimal initialCredits = new BigDecimal("1000");
+        BigDecimal expectedBalance = initialCredits.subtract(spentThisCycle).max(BigDecimal.ZERO);
+        var accountOpt = creditAccountRepository.findById(cleanEmail);
+        if (accountOpt.isPresent()) {
+            CreditAccount account = accountOpt.get();
+            if (account.getBalance().compareTo(expectedBalance) != 0) {
+                account.setBalance(expectedBalance);
+                creditAccountRepository.save(account);
+            }
+        }
+    }
+
     public BigDecimal getMemberBalance(String email) {
         if (email == null || creditAccountRepository == null) {
             return BigDecimal.ZERO;
         }
+        syncMemberWeeklyCreditCycle(email);
         return creditAccountRepository.findById(email)
                 .map(CreditAccount::getBalance)
                 .orElse(BigDecimal.ZERO);
@@ -255,7 +302,8 @@ public class BookingService {
                         new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
 
                 // Deduct credits from member balance when booking state is IN_PROGRESS
-                CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
+                syncMemberWeeklyCreditCycle(ownerEmail);
+        CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
                 if (account == null || account.getBalance().compareTo(quote.totalCredits()) < 0) {
                     throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
                             "The member does not have enough credits for this booking.");
@@ -291,7 +339,8 @@ public class BookingService {
                     new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
             booking.setCreditCost(quote.totalCredits());
 
-            CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
+            syncMemberWeeklyCreditCycle(ownerEmail);
+        CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
             if (account == null || account.getBalance().compareTo(quote.totalCredits()) < 0) {
                 throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
                         "The member does not have enough credits for this booking.");
@@ -480,7 +529,8 @@ public class BookingService {
             var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, contention,
                     new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
 
-            CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
+            syncMemberWeeklyCreditCycle(ownerEmail);
+        CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
             if (account == null || account.getBalance().compareTo(quote.totalCredits()) < 0) {
                 throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
                         "The member does not have enough credits for this booking.");
@@ -517,6 +567,7 @@ public class BookingService {
         var quote = priceCalculator.calculate(duration, resource.getBaseRate(), BigDecimal.ONE, contention,
                 new PricingPolicy(resource.getMinimumDurationHours(), resource.getMaximumContentionMultiplier()));
 
+        syncMemberWeeklyCreditCycle(ownerEmail);
         CreditAccount account = creditAccountRepository.findForUpdate(ownerEmail).orElse(null);
         if (account == null || account.getBalance().compareTo(quote.totalCredits()) < 0) {
             throw new BookingRejectedException(BookingRejectionReason.INSUFFICIENT_CREDITS,
@@ -601,11 +652,67 @@ public class BookingService {
         return conflict == BookingConflictType.EXACT_MATCH ? BookingStatus.IN_PROGRESS : BookingStatus.CONFIRMED;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
+    public int expireStalePendingApprovals() {
+        LocalDateTime now = LocalDateTime.now();
+        List<Booking> pending = bookingRepository.findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL);
+        if (pending == null || pending.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (Booking booking : pending) {
+            if (booking.getStartTime() != null && !now.isBefore(booking.getStartTime().minusMinutes(15))) {
+                booking.setStatus(BookingStatus.REJECTED);
+                booking.setRejectionReason("Expired: Request was not reviewed by administrator before the deadline (15 minutes prior to start time).");
+                booking.setCancelledAt(now);
+                bookingRepository.save(booking);
+                count++;
+
+                if (notificationRepository != null && booking.getMemberId() != null) {
+                    String resName = "Resource";
+                    if (booking.getResource() != null) {
+                        try {
+                            resName = booking.getResource().getName();
+                        } catch (Exception e) {
+                            try {
+                                UUID rId = booking.getResource().getId();
+                                if (resourceRepository != null && rId != null) {
+                                    resName = resourceRepository.findById(rId).map(LabResource::getName).orElse("Resource");
+                                }
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    }
+                    com.mrlbs.notification.InAppNotification notif = new com.mrlbs.notification.InAppNotification(
+                            booking.getMemberId(),
+                            "Booking Request Expired",
+                            "Your booking request for " + resName + " has expired because it was not reviewed by the administrator at least 15 minutes before the scheduled start time."
+                    );
+                    notificationRepository.save(notif);
+                }
+            }
+        }
+        return count;
+    }
+
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 60000)
+    @Transactional
+    public void scheduledPendingApprovalExpiration() {
+        try {
+            expireStalePendingApprovals();
+        } catch (Exception e) {
+            org.slf4j.LoggerFactory.getLogger(BookingService.class).warn("Error running scheduled pending approval expiration: {}", e.getMessage());
+        }
+    }
+
+    @Transactional
     public List<Booking> pendingApprovalsForAdmin(String adminEmail, String scope) {
         validateIdentity(adminEmail);
+        expireStalePendingApprovals();
+        LocalDateTime now = LocalDateTime.now();
         List<Booking> pending = bookingRepository.findByStatusOrderByStartTimeAsc(BookingStatus.PENDING_APPROVAL)
                 .stream()
+                .filter(b -> b.getStartTime() == null || now.isBefore(b.getStartTime().minusMinutes(15)))
                 .sorted(
                         Comparator.comparing((Booking booking) -> booking.getStartTime() != null ? booking.getStartTime().toLocalDate() : null,
                                         Comparator.nullsLast(java.time.LocalDate::compareTo))
@@ -639,6 +746,16 @@ public class BookingService {
 
         if (booking.getStatus() != BookingStatus.PENDING_APPROVAL) {
             throw new IllegalStateException("Booking is not awaiting approval.");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (approved && booking.getStartTime() != null && !now.isBefore(booking.getStartTime().minusMinutes(15))) {
+            booking.setStatus(BookingStatus.REJECTED);
+            booking.setRejectionReason("Expired: Request was not reviewed by administrator before the deadline (15 minutes prior to start time).");
+            booking.setCancelledAt(now);
+            bookingRepository.save(booking);
+            throw new BookingRejectedException(BookingRejectionReason.INVALID_TIME_WINDOW,
+                    "This booking request has expired because it was not approved at least 15 minutes before the start time.");
         }
 
         String scope = AdminResourceScope.scopeForEmail(adminEmail).orElse(null);
@@ -994,10 +1111,25 @@ public class BookingService {
         }
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<Booking> history(String ownerEmail) {
+        syncMemberWeeklyCreditCycle(ownerEmail);
         UUID memberId = resolveMemberId(ownerEmail);
-        return bookingRepository.findByMemberIdOrderByStartTimeDesc(memberId);
+        List<Booking> bookings = bookingRepository.findByMemberIdOrderByStartTimeDesc(memberId);
+        LocalDateTime now = LocalDateTime.now();
+        for (Booking booking : bookings) {
+            if (booking.getStatus() == BookingStatus.CONFIRMED && booking.getEndTime() != null && booking.getEndTime().isBefore(now)) {
+                booking.setStatus(BookingStatus.COMPLETED);
+                bookingRepository.save(booking);
+            } else if (booking.getStatus() == BookingStatus.PENDING_APPROVAL && booking.getStartTime() != null
+                    && !now.isBefore(booking.getStartTime().minusMinutes(15))) {
+                booking.setStatus(BookingStatus.REJECTED);
+                booking.setRejectionReason("Expired: Request was not reviewed by administrator before the deadline (15 minutes prior to start time).");
+                booking.setCancelledAt(now);
+                bookingRepository.save(booking);
+            }
+        }
+        return bookings;
     }
     private UUID resolveMemberId(String email) {
         if (email == null) {

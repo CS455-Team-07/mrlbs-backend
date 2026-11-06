@@ -808,5 +808,63 @@ class BookingServiceTests {
         assertEquals(0, account.getBalance().compareTo(new BigDecimal("40")));
         verify(bookingRepository).save(pending1);
     }
+
+    @Test
+    void pendingApprovalWithin15MinutesCutoffIsAutoRejectedAndDisallowsApproval() {
+        UUID bookingId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        // Start time is 10 minutes from now (within the 15-minute cutoff)
+        LocalDateTime start = LocalDateTime.now().plusMinutes(10);
+        LocalDateTime end = start.plusHours(1);
+
+        Booking pending = new Booking("member@iitk.ac.in", resource, start, end,
+                BookingStatus.PENDING_APPROVAL, BigDecimal.ZERO);
+        pending.setId(bookingId);
+        pending.setMemberId(memberId);
+
+        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(pending));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
+
+        // When admin attempts to approve within 15 minutes of start time
+        BookingRejectedException ex = assertThrows(BookingRejectedException.class, () ->
+                service.reviewApprovalDecision("admin@iitk.ac.in", bookingId, true));
+
+        // Then rejection occurs and status is REJECTED
+        assertEquals(BookingRejectionReason.INVALID_TIME_WINDOW, ex.getReason());
+        assertEquals(BookingStatus.REJECTED, pending.getStatus());
+        assertTrue(pending.getRejectionReason().contains("Expired"));
+        verify(bookingRepository).save(pending);
+    }
+
+    @Test
+    void rollingWeeklyCreditResetRestoresAllowanceWhenNewCycleStarts() {
+        com.mrlbs.member.MemberRepository memberRepo = mock(com.mrlbs.member.MemberRepository.class);
+        BookingService testService = new BookingService(bookingRepository, resourceRepository,
+                creditAccountRepository, new BookingPriceCalculator(), null, memberRepo, waitlistRepository, null, null, null);
+
+        String email = "student@iitk.ac.in";
+        UUID memberId = UUID.randomUUID();
+        // Member joined 8 days ago
+        LocalDateTime createdAt = LocalDateTime.now().minusDays(8);
+        com.mrlbs.member.Member member = new com.mrlbs.member.Member(memberId, email, "Student", "MEMBER", createdAt);
+        when(memberRepo.findByEmail(email)).thenReturn(Optional.of(member));
+
+        // Credit account had 400 credits left from previous week
+        CreditAccount account = new CreditAccount(email, new BigDecimal("400"));
+        when(creditAccountRepository.findById(email)).thenReturn(Optional.of(account));
+
+        // Old booking was made 6 days ago (Day 2 of signup, before current cycle which started on Day 7)
+        Booking oldBooking = new Booking(email, resource, createdAt.plusDays(2), createdAt.plusDays(2).plusHours(2),
+                BookingStatus.CONFIRMED, new BigDecimal("600"));
+        oldBooking.setCreatedAt(createdAt.plusDays(2));
+        when(bookingRepository.findByMemberIdOrderByStartTimeDesc(memberId)).thenReturn(java.util.List.of(oldBooking));
+
+        // Sync rolling weekly credits
+        testService.syncMemberWeeklyCreditCycle(email);
+
+        // Balance must reset back to 1000 since old booking is in the previous cycle
+        assertEquals(new BigDecimal("1000"), account.getBalance());
+        verify(creditAccountRepository).save(account);
+    }
 }
 
