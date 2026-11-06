@@ -15,6 +15,8 @@ import java.util.UUID;
 @Table(name = "in_app_notifications")
 public class InAppNotification {
 
+    public static final int MAX_MESSAGE_LENGTH = 1000;
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
@@ -25,7 +27,7 @@ public class InAppNotification {
     @Column(nullable = false, length = 255)
     private String title;
 
-    @Column(nullable = false, length = 1000)
+    @Column(nullable = false, length = MAX_MESSAGE_LENGTH)
     private String message;
 
     @Column(name = "offer_id")

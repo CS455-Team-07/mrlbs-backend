@@ -365,3 +365,43 @@ Accepted
 
 **Reason:**
 It provides the required admin queue and queue count without broadening the work beyond the approval workflow.
+
+#### 2026-11-06 — BOOK-96 approval decision notifications
+
+**Task / Context**
+
+Implement FR-9.3 and US-9 for the member who requested an approval-required booking.
+
+**Prompt**
+
+The user provided BOOK-96, “Notify requesting Member of approval decision within 60 seconds,” with acceptance criteria for both decision outcomes, post-recording delivery, and booking identification. The user requested that the implementation be pushed.
+
+**AI Output**
+
+Traced the existing in-app inbox and eight-second member dashboard polling. Added explicit booking decision notices with the resource, time window, and booking ID. The notice is staged after the booking is saved and becomes visible in the same commit.
+
+**Student / Team Evaluation**
+
+Pending human review.
+
+**Errors / Risks / Hallucinations**
+
+Four new checks failed against the baseline. The approval notice was labeled as a credit debit, the largest valid rejection reason overflowed the notification field, and competing reviewers could record duplicate notices. The local inbox test measures visibility through the authenticated API and uses the existing polling path for dashboard refresh.
+
+**Changes Made After Evaluation**
+
+Reused the booking row lock to serialize decisions. Kept concise reasons in the inbox and directed members to booking history for longer explanations. Added integration checks for confirmed and waitlisted approvals, rejection, delivery to the requesting member, transaction rollback, and competing decisions.
+
+The local run passed 158 tests. It excluded two live RabbitMQ test classes and the pre-existing strict Mockito failure in the approval-queue ordering test.
+
+**Final Artifact / Output**
+
+The BOOK-96 backend implementation and its regression tests.
+
+**Decision**
+
+Pending human review.
+
+**Reason**
+
+The decision and the corresponding in-app message commit atomically, so a rolled-back decision cannot appear in the member inbox.
