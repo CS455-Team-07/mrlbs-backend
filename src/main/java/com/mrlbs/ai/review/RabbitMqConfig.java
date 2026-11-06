@@ -59,6 +59,7 @@ public class RabbitMqConfig {
             if (addresses.startsWith("amqps://")) {
                 rmqFactory.useSslProtocol(javax.net.ssl.SSLContext.getDefault());
                 rmqFactory.enableHostnameVerification();
+                rmqFactory.enableHostnameVerification();
             }
             rmqFactory.setAutomaticRecoveryEnabled(false);
             factory = new CachingConnectionFactory(rmqFactory);

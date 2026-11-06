@@ -12,6 +12,7 @@ import org.springframework.security.oauth2.client.authentication.OAuth2Authentic
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.core.env.Environment;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -25,6 +26,11 @@ import java.util.Optional;
  *  the frontend demo-switcher can change identities without a backend restart.
  */
 public class DemoAuthenticationFilter extends OncePerRequestFilter {
+
+    public static boolean isEnabled(Environment environment) {
+        return environment.matchesProfiles("dev") && !environment.matchesProfiles("postgres")
+                && !environment.getProperty("mrlbs.auth.enabled", Boolean.class, true);
+    }
 
     /** Cookie name written by DemoAdminController. */
     /** Cookie name written by DemoAdminController. */

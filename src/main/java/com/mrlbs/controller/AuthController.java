@@ -1,270 +1,220 @@
 package com.mrlbs.controller;
+
 import com.mrlbs.auth.OtpService;
-import java.util.Map;
-
-import com.mrlbs.security.AdminResourceScope;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.core.oidc.user.OidcUser;
-import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-
 import com.mrlbs.member.MemberLoginRequest;
 import com.mrlbs.member.MemberResponse;
 import com.mrlbs.member.MemberService;
+import com.mrlbs.security.AdminResourceScope;
 import com.mrlbs.security.DemoAuthenticationFilter;
+import com.mrlbs.security.RequestRateLimiter;
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
-
     private final MemberService memberService;
     private final OtpService otpService;
+    private final RequestRateLimiter limiter;
+    private final boolean demo;
+    private final String institutionalDomain;
+    private final int sendsPerMinute;
+    private final int checksPerMinute;
+    private final HttpSessionSecurityContextRepository sessions = new HttpSessionSecurityContextRepository();
 
-    public AuthController(MemberService memberService, OtpService otpService) {
+    public AuthController(MemberService memberService, OtpService otpService, RequestRateLimiter limiter,
+                          Environment environment,
+                          @Value("${mrlbs.auth.institutional-domain}") String institutionalDomain,
+                          @Value("${mrlbs.security.otp-sends-per-minute:3}") int sendsPerMinute,
+                          @Value("${mrlbs.security.otp-checks-per-minute:5}") int checksPerMinute) {
         this.memberService = memberService;
         this.otpService = otpService;
+        this.limiter = limiter;
+        this.demo = DemoAuthenticationFilter.isEnabled(environment);
+        this.institutionalDomain = normalize(institutionalDomain);
+        this.sendsPerMinute = sendsPerMinute;
+        this.checksPerMinute = checksPerMinute;
     }
 
-    /**
-     * POST /api/auth/login
-     * Admins log in directly without OTP.
-     * Returning members (found in database) log in directly without OTP.
-     * First-time members receive an OTP; once verified, they are stored in the DB for all future logins.
-     */
     @PostMapping("/login")
-    public ResponseEntity<?> login(
-            @RequestBody Map<String, String> body,
-            HttpServletResponse response) {
-        String email = body.getOrDefault("email", "").trim().toLowerCase();
-        String role = body.getOrDefault("role", "member").trim().toLowerCase();
-
-        if (email.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("message", "Email is required."));
+    public ResponseEntity<?> login(@RequestBody SignIn body, HttpServletResponse response) {
+        String email = normalize(body.email());
+        if (!isInstitutionalAddress(email)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Only @" + institutionalDomain + " email addresses are accepted."));
         }
-        if (!email.endsWith("@iitk.ac.in")) {
-            return ResponseEntity.badRequest().body(Map.of("message", "Only @iitk.ac.in email addresses are accepted."));
+        boolean admin = AdminResourceScope.isScopedAdmin(email);
+        if ("admin".equalsIgnoreCase(body.role()) && !admin) {
+            return ResponseEntity.badRequest().body(Map.of("message", "This email is not an authorized administrator."));
         }
-
-        if ("admin".equalsIgnoreCase(role)) {
-            if (!AdminResourceScope.isScopedAdmin(email)) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "message", "This email is not an authorized administrator. Please switch to Member Login."
-                ));
-            }
-
-            Cookie adminCookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, email);
-            adminCookie.setPath("/");
-            adminCookie.setMaxAge(86400 * 7);
-            adminCookie.setHttpOnly(false);
-            response.addCookie(adminCookie);
-
-            Cookie clearMemberCookie = new Cookie(DemoAuthenticationFilter.MEMBER_COOKIE_NAME, "");
-            clearMemberCookie.setPath("/");
-            clearMemberCookie.setMaxAge(0);
-            response.addCookie(clearMemberCookie);
-
-            return ResponseEntity.ok(Map.of(
-                    "status", "LOGGED_IN",
-                    "id", "admin-" + email,
-                    "name", email.split("@")[0],
-                    "email", email,
-                    "role", "admin"
-            ));
+        if (demo && (admin || memberService.isMemberRegistered(email))) {
+            Identity identity = identity(email);
+            setDemoIdentity(response, identity);
+            return ResponseEntity.ok(Map.of("status", "LOGGED_IN", "id", identity.id(), "name", identity.name(),
+                    "email", email, "role", identity.role()));
         }
-
-        // Member flow: Check database
-        boolean alreadyRegistered = memberService.isMemberRegistered(email);
-
-        if (alreadyRegistered) {
-            MemberResponse member = memberService.loginOrCreateMember(email, null);
-
-            Cookie memberCookie = new Cookie(DemoAuthenticationFilter.MEMBER_COOKIE_NAME, member.email());
-            memberCookie.setPath("/");
-            memberCookie.setMaxAge(86400 * 7);
-            memberCookie.setHttpOnly(false);
-            response.addCookie(memberCookie);
-
-            Cookie clearAdminCookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, "");
-            clearAdminCookie.setPath("/");
-            clearAdminCookie.setMaxAge(0);
-            response.addCookie(clearAdminCookie);
-
-            return ResponseEntity.ok(Map.of(
-                    "status", "LOGGED_IN",
-                    "id", member.id().toString(),
-                    "name", member.name(),
-                    "email", member.email(),
-                    "role", "member"
-            ));
-        } else {
-            // First time member: OTP required
-            try {
-                otpService.generateAndSend(email);
-                return ResponseEntity.ok(Map.of(
-                        "status", "OTP_REQUIRED",
-                        "message", "First-time sign in: a one-time verification code has been sent to " + email
-                ));
-            } catch (Exception e) {
-                return ResponseEntity.internalServerError().body(Map.of(
-                        "message", "Could not send the verification code. Please try again."
-                ));
-            }
-        }
+        return sendCode(email);
     }
 
-    /** POST /api/auth/request-code  { "email": "user@iitk.ac.in" } */
     @PostMapping("/request-code")
-    public ResponseEntity<?> requestCode(@RequestBody Map<String, String> body) {
-        String email = body.getOrDefault("email", "").trim();
-        if (email.isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("message", "Email is required."));
+    public ResponseEntity<?> requestCode(@RequestBody SignIn body) {
+        return sendCode(normalize(body.email()));
+    }
+
+    private ResponseEntity<?> sendCode(String email) {
+        if (!isInstitutionalAddress(email)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Only @" + institutionalDomain + " email addresses are accepted."));
+        }
+        if (!limiter.allow("otp-send:" + email, sendsPerMinute)) {
+            return rateLimited();
         }
         try {
             otpService.generateAndSend(email);
-            return ResponseEntity.ok(
-                    Map.of("message", "A verification code has been sent to " + email));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("message", e.getMessage()));
-        } catch (Exception e) {
+            return ResponseEntity.ok(Map.of("status", "OTP_REQUIRED", "message", "A verification code has been sent."));
+        } catch (org.springframework.mail.MailException exception) {
             return ResponseEntity.internalServerError()
                     .body(Map.of("message", "Could not send the verification code. Please try again."));
         }
     }
 
-    /** POST /api/auth/verify-code  { "email": "user@iitk.ac.in", "code": "123456" } */
     @PostMapping("/verify-code")
-    public ResponseEntity<?> verifyCode(
-            @RequestBody Map<String, String> body,
-            HttpServletResponse response) {
-        String email = body.getOrDefault("email", "").trim();
-        String code  = body.getOrDefault("code", "").trim();
-
-        if (email.isEmpty() || code.isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("message", "Email and code are required."));
+    public ResponseEntity<?> verifyCode(@RequestBody SignIn body, HttpServletRequest request,
+                                        HttpServletResponse response) {
+        String email = normalize(body.email());
+        if (!isInstitutionalAddress(email) || body.code() == null || !body.code().strip().matches("[0-9]{6}")) {
+            return ResponseEntity.badRequest().body(Map.of("message", "A valid email and six-digit code are required."));
         }
-
-        if (!otpService.verify(email, code)) {
-            return ResponseEntity.status(401)
-                    .body(Map.of("message", "Invalid or expired verification code."));
+        if (!limiter.allow("otp-check:" + email, checksPerMinute)) {
+            return rateLimited();
         }
-
-        // OTP is valid → determine role
-        boolean isScopedAdmin = AdminResourceScope.isScopedAdmin(email);
-
-        if (isScopedAdmin) {
-            Cookie adminCookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, email);
-            adminCookie.setPath("/");
-            adminCookie.setMaxAge(86400 * 7);
-            adminCookie.setHttpOnly(false);
-            response.addCookie(adminCookie);
-
-            Cookie clearMemberCookie = new Cookie(DemoAuthenticationFilter.MEMBER_COOKIE_NAME, "");
-            clearMemberCookie.setPath("/");
-            clearMemberCookie.setMaxAge(0);
-            response.addCookie(clearMemberCookie);
-
-            return ResponseEntity.ok(Map.of(
-                    "id", "admin-" + email,
-                    "name", email.split("@")[0],
-                    "email", email,
-                    "role", "admin"
-            ));
+        if (!otpService.verify(email, body.code())) {
+            return ResponseEntity.status(401).body(Map.of("message", "Invalid or expired verification code."));
+        }
+        Identity identity = identity(email);
+        if (demo) {
+            setDemoIdentity(response, identity);
         } else {
-            MemberResponse member = memberService.loginOrCreateMember(email, null);
-
-            Cookie memberCookie = new Cookie(
-                    DemoAuthenticationFilter.MEMBER_COOKIE_NAME, member.email());
-            memberCookie.setPath("/");
-            memberCookie.setMaxAge(86400 * 7);
-            memberCookie.setHttpOnly(false);
-            response.addCookie(memberCookie);
-
-            Cookie clearAdminCookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, "");
-            clearAdminCookie.setPath("/");
-            clearAdminCookie.setMaxAge(0);
-            response.addCookie(clearAdminCookie);
-
-            return ResponseEntity.ok(member);
+            createVerifiedSession(request, response, identity);
         }
+        return ResponseEntity.ok(identity);
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(HttpServletResponse response) {
-        Cookie clearMember = new Cookie(DemoAuthenticationFilter.MEMBER_COOKIE_NAME, "");
-        clearMember.setPath("/");
-        clearMember.setMaxAge(0);
-        response.addCookie(clearMember);
-
-        Cookie clearAdmin = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, "");
-        clearAdmin.setPath("/");
-        clearAdmin.setMaxAge(0);
-        response.addCookie(clearAdmin);
-
-        Cookie clearUser = new Cookie("DEMO_USER_EMAIL", "");
-        clearUser.setPath("/");
-        clearUser.setMaxAge(0);
-        response.addCookie(clearUser);
-
-        org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    public ResponseEntity<?> logout(HttpServletRequest request, HttpServletResponse response) {
+        new SecurityContextLogoutHandler().logout(request, response, SecurityContextHolder.getContext().getAuthentication());
+        if (demo) {
+            addDemoCookie(response, DemoAuthenticationFilter.MEMBER_COOKIE_NAME, "", 0);
+            addDemoCookie(response, DemoAuthenticationFilter.COOKIE_NAME, "", 0);
+            addDemoCookie(response, "DEMO_USER_EMAIL", "", 0);
+        }
         return ResponseEntity.ok(Map.of("message", "Logged out successfully"));
     }
 
     @PostMapping("/member-login")
-    public ResponseEntity<MemberResponse> memberLogin(
-            @Valid @RequestBody MemberLoginRequest request,
-            HttpServletResponse response) {
-        MemberResponse member = memberService.loginOrCreateMember(request.email(), request.name());
-
-        // Only set the member cookie — never write DEMO_ADMIN_EMAIL with a member
-        // address, as that would give ROLE_MEMBER to any subsequent admin request
-        // that the DemoAuthenticationFilter processes before the admin cookie.
-        Cookie memberCookie = new Cookie(DemoAuthenticationFilter.MEMBER_COOKIE_NAME, member.email());
-        memberCookie.setPath("/");
-        memberCookie.setMaxAge(86400 * 7);
-        memberCookie.setHttpOnly(false);
-        response.addCookie(memberCookie);
-
-        // Explicitly clear any stale admin-identity cookie so a previous admin
-        // session does not bleed into this member session.
-        Cookie clearAdminCookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, "");
-        clearAdminCookie.setPath("/");
-        clearAdminCookie.setMaxAge(0);
-        response.addCookie(clearAdminCookie);
-
+    public ResponseEntity<MemberResponse> memberLogin(@Valid @RequestBody MemberLoginRequest request,
+                                                       @AuthenticationPrincipal OidcUser user,
+                                                       HttpServletResponse response) {
+        if (!demo && (user == null || AdminResourceScope.isScopedAdmin(user.getEmail())
+                || !normalize(request.email()).equals(normalize(user.getEmail())))) {
+            return ResponseEntity.status(403).build();
+        }
+        MemberResponse member = demo ? memberService.loginOrCreateMember(request.email(), request.name())
+                : memberService.loginOrCreateMember(user.getEmail(), user.getFullName());
+        if (demo) {
+            setDemoIdentity(response, new Identity(member.id().toString(), member.name(), member.email(), "member", null));
+        }
         return ResponseEntity.ok(member);
     }
 
     @GetMapping("/me")
-    public AuthenticatedUserResponse currentUser(@AuthenticationPrincipal OidcUser user) {
-        String email = user.getEmail();
-        String scope = AdminResourceScope.scopeForEmail(email).orElse(null);
-        return new AuthenticatedUserResponse(
-                user.getSubject(),
-                user.getFullName(),
-                email,
-                scope);
+    public Identity currentUser(@AuthenticationPrincipal OidcUser user) {
+        return new Identity(user.getSubject(), user.getFullName(), user.getEmail(),
+                AdminResourceScope.isScopedAdmin(user.getEmail()) ? "admin" : "member",
+                AdminResourceScope.scopeForEmail(user.getEmail()).orElse(null));
     }
 
     @GetMapping("/csrf")
-    public CsrfTokenResponse csrfToken(CsrfToken csrfToken) {
-        return new CsrfTokenResponse(csrfToken.getToken(), csrfToken.getHeaderName());
+    public CsrfTokenResponse csrfToken(CsrfToken token) {
+        return new CsrfTokenResponse(token.getToken(), token.getHeaderName());
     }
 
-    /** @param resourceTypeScope null means the admin can manage all resource types. */
-    public record AuthenticatedUserResponse(String id, String name, String email, String resourceTypeScope) {
+    private Identity identity(String email) {
+        String scope = AdminResourceScope.scopeForEmail(email).orElse(null);
+        if (scope != null) {
+            return new Identity("admin-" + scope, email.substring(0, email.indexOf('@')), email, "admin", scope);
+        }
+        MemberResponse member = memberService.loginOrCreateMember(email, null);
+        return new Identity(member.id().toString(), member.name(), email, "member", null);
     }
 
-    public record CsrfTokenResponse(String token, String headerName) {
+    private void createVerifiedSession(HttpServletRequest request, HttpServletResponse response, Identity identity) {
+        if (request.getSession(false) != null) {
+            request.changeSessionId();
+        }
+        Instant now = Instant.now();
+        var claims = Map.<String, Object>of("sub", identity.id(), "email", identity.email(),
+                "email_verified", true, "name", identity.name());
+        var token = new OidcIdToken("mailbox-verified-session", now, now.plus(30, ChronoUnit.MINUTES), claims);
+        var roles = List.of(new SimpleGrantedAuthority("ROLE_" + identity.role().toUpperCase(Locale.ROOT)));
+        var user = new DefaultOidcUser(roles, token);
+        var context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(user, null, roles));
+        SecurityContextHolder.setContext(context);
+        sessions.saveContext(context, request, response);
     }
+
+    private boolean isInstitutionalAddress(String email) {
+        int separator = email.indexOf('@');
+        return separator > 0 && separator <= 64
+                && email.substring(separator + 1).equals(institutionalDomain)
+                && email.substring(0, separator).matches("[a-z0-9_+.-]+");
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.strip().toLowerCase(Locale.ROOT);
+    }
+
+    private static ResponseEntity<?> rateLimited() {
+        return ResponseEntity.status(429).header("Retry-After", "60")
+                .body(Map.of("message", "Too many requests. Please try again in a minute."));
+    }
+
+    private static void setDemoIdentity(HttpServletResponse response, Identity identity) {
+        boolean admin = "admin".equals(identity.role());
+        addDemoCookie(response, DemoAuthenticationFilter.COOKIE_NAME, admin ? identity.email() : "", admin ? 604800 : 0);
+        addDemoCookie(response, DemoAuthenticationFilter.MEMBER_COOKIE_NAME, admin ? "" : identity.email(), admin ? 0 : 604800);
+    }
+
+    private static void addDemoCookie(HttpServletResponse response, String name, String email, int maxAge) {
+        Cookie cookie = new Cookie(name, email);
+        cookie.setPath("/");
+        cookie.setMaxAge(maxAge);
+        cookie.setHttpOnly(true);
+        response.addCookie(cookie);
+    }
+
+    public record SignIn(String email, String role, String code) {}
+    public record Identity(String id, String name, String email, String role, String resourceTypeScope) {}
+    public record CsrfTokenResponse(String token, String headerName) {}
 }

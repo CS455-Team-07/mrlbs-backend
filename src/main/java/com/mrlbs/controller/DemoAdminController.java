@@ -4,7 +4,7 @@ import com.mrlbs.security.AdminResourceScope;
 import com.mrlbs.security.DemoAuthenticationFilter;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,8 +23,8 @@ public class DemoAdminController {
 
     private final boolean authEnabled;
 
-    public DemoAdminController(@Value("${mrlbs.auth.enabled:false}") boolean authEnabled) {
-        this.authEnabled = authEnabled;
+    public DemoAdminController(Environment environment) {
+        this.authEnabled = !DemoAuthenticationFilter.isEnabled(environment);
     }
 
     /**

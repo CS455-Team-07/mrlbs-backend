@@ -7,6 +7,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -37,7 +38,7 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleAccessDenied(AccessDeniedException exception) {
         return ProblemDetail.forStatusAndDetail(
                 HttpStatus.FORBIDDEN,
-                "Only an Admin can onboard a resource.");
+                "You do not have permission to perform this operation.");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -47,11 +48,17 @@ public class GlobalExceptionHandler {
                 "The resource details or initial rules are invalid.");
     }
 
+    @ExceptionHandler(ResponseStatusException.class)
+    public ProblemDetail handleHttpStatus(ResponseStatusException exception) {
+        return exception.getBody();
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpectedException(Exception exception) {
-        exception.printStackTrace();
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
+                .error("Unhandled request failure ({})", exception.getClass().getSimpleName());
         return ProblemDetail.forStatusAndDetail(
                 HttpStatus.INTERNAL_SERVER_ERROR,
-                "An unexpected error occurred: " + exception.getMessage());
+                "An unexpected error occurred.");
     }
 }

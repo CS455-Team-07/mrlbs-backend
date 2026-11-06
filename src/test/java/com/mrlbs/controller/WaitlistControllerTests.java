@@ -117,8 +117,8 @@ class WaitlistControllerTests {
         bookingService.submit(memberEmail, new BookingRequest(testResource.getId(), start, end));
 
         mockMvc.perform(get("/api/waitlist")
-                        .with(SecurityMockMvcRequestPostProcessors.user("member").roles("MEMBER"))
-                        .header("X-User-Email", memberEmail))
+                        .with(SecurityMockMvcRequestPostProcessors.oidcLogin().idToken(token -> token.claim("email", memberEmail))
+                                .authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_MEMBER"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].status", is("IN_PROGRESS")))
@@ -137,9 +137,9 @@ class WaitlistControllerTests {
         WaitlistEntry entry = waitlistEntryRepository.findByBookingId(booking.getId()).orElseThrow();
 
         mockMvc.perform(delete("/api/waitlist/" + entry.getId())
-                        .with(SecurityMockMvcRequestPostProcessors.user("member").roles("MEMBER"))
-                        .with(csrf())
-                        .header("X-User-Email", memberEmail))
+                        .with(SecurityMockMvcRequestPostProcessors.oidcLogin().idToken(token -> token.claim("email", memberEmail))
+                                .authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_MEMBER")))
+                        .with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("CANCELLED")));
     }
@@ -156,7 +156,7 @@ class WaitlistControllerTests {
     @Test
     void unauthenticatedRequestIsUnauthorized() throws Exception {
         mockMvc.perform(get("/api/waitlist"))
-                .andExpect(status().is3xxRedirection());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -177,8 +177,8 @@ class WaitlistControllerTests {
 
         // 1. GET /api/waitlist/offers
         mockMvc.perform(get("/api/waitlist/offers")
-                        .with(SecurityMockMvcRequestPostProcessors.user("member").roles("MEMBER"))
-                        .header("X-User-Email", memberEmail))
+                        .with(SecurityMockMvcRequestPostProcessors.oidcLogin().idToken(token -> token.claim("email", memberEmail))
+                                .authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_MEMBER"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].id", is(offer.getId().toString())))
@@ -186,17 +186,17 @@ class WaitlistControllerTests {
 
         // 2. GET /api/waitlist/notifications
         mockMvc.perform(get("/api/waitlist/notifications")
-                        .with(SecurityMockMvcRequestPostProcessors.user("member").roles("MEMBER"))
-                        .header("X-User-Email", memberEmail))
+                        .with(SecurityMockMvcRequestPostProcessors.oidcLogin().idToken(token -> token.claim("email", memberEmail))
+                                .authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_MEMBER"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].isRead", is(false)));
 
         // 3. POST /api/waitlist/offers/{id}/accept
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/waitlist/offers/" + offer.getId() + "/accept")
-                        .with(SecurityMockMvcRequestPostProcessors.user("member").roles("MEMBER"))
-                        .with(csrf())
-                        .header("X-User-Email", memberEmail))
+                        .with(SecurityMockMvcRequestPostProcessors.oidcLogin().idToken(token -> token.claim("email", memberEmail))
+                                .authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_MEMBER")))
+                        .with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("CONFIRMED")));
     }
@@ -217,9 +217,9 @@ class WaitlistControllerTests {
         var offer = waitlistOfferService.processReleasedSlotForOffer(testResource.getId(), start, end).orElseThrow();
 
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/waitlist/offers/" + offer.getId() + "/decline")
-                        .with(SecurityMockMvcRequestPostProcessors.user("member").roles("MEMBER"))
-                        .with(csrf())
-                        .header("X-User-Email", memberEmail))
+                        .with(SecurityMockMvcRequestPostProcessors.oidcLogin().idToken(token -> token.claim("email", memberEmail))
+                                .authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_MEMBER")))
+                        .with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("DECLINED")));
     }

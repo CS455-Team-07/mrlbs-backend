@@ -18,8 +18,11 @@ public class CorsConfig implements WebMvcConfigurer {
     @Value("${mrlbs.cors.allowed-origins:http://localhost:3000,http://localhost:5173}")
     private List<String> allowedOrigins;
 
+    @Value("${mrlbs.security.require-tls:false}")
+    private boolean requireTls;
+
     private List<String> resolveAllowedOriginPatterns() {
-        List<String> patterns = new ArrayList<>(List.of(
+        List<String> patterns = requireTls ? new ArrayList<>() : new ArrayList<>(List.of(
                 "http://localhost:*",
                 "http://127.0.0.1:*",
                 "http://[::1]:*"
