@@ -55,11 +55,12 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
-                        // Demo identity-switcher and member-login endpoints
+                        // Demo identity-switcher, member-login, and AI recommendation endpoints
                         .ignoringRequestMatchers("/api/demo/**", "/api/auth/member-login",
                                 "/api/auth/login",
                                 "/api/auth/request-code", "/api/auth/verify-code",
-                                "/api/auth/logout", "/logout"))
+                                "/api/auth/logout", "/logout",
+                                "/api/ai/**"))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
                                 "/oauth2/**",
