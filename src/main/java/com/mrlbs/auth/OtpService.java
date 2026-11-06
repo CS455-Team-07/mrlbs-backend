@@ -1,6 +1,7 @@
 package com.mrlbs.auth;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -46,11 +47,8 @@ public class OtpService {
         }
 
         String code = generateCode();
-        store.put(email, new OtpEntry(code, Instant.now().plusSeconds(TTL_SECONDS)));
-
-        System.out.println("=================================================");
-        System.out.println("[MRLBS AUTH] Verification Code for " + email + ": " + code);
-        System.out.println("=================================================");
+        OtpEntry entry = new OtpEntry(code, Instant.now().plusSeconds(TTL_SECONDS));
+        store.put(email, entry);
 
         try {
             SimpleMailMessage message = new SimpleMailMessage();
@@ -61,9 +59,9 @@ public class OtpService {
                     + "\n\nThis code expires in 5 minutes."
                     + "\nIf you did not request this, please ignore this email.");
             mailSender.send(message);
-        } catch (Exception e) {
-            System.err.println("[MRLBS AUTH] Warning: Could not dispatch email via SMTP: " + e.getMessage());
-            System.err.println("[MRLBS AUTH] Use the verification code printed above to proceed: " + code);
+        } catch (MailException exception) {
+            store.remove(email, entry);
+            throw exception;
         }
     }
 
@@ -77,15 +75,11 @@ public class OtpService {
         OtpEntry entry = store.get(email);
         if (entry == null)
             return false;
-        if (Instant.now().isAfter(entry.expiresAt())) {
-            store.remove(email);
+        if (!Instant.now().isBefore(entry.expiresAt())) {
+            store.remove(email, entry);
             return false;
         }
-        if (entry.code().equals(code.trim())) {
-            store.remove(email); // one-time use
-            return true;
-        }
-        return false;
+        return entry.code().equals(code.trim()) && store.remove(email, entry);
     }
 
     private String generateCode() {
