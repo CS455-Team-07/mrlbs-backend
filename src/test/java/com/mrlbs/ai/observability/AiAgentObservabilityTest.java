@@ -326,6 +326,62 @@ class AiAgentObservabilityTest {
             assertThat(logs).anyMatch(l -> l.contains("event=AGENT_COMPLETE") && l.contains("outcome=EXACT") &&
                     l.contains("topResource=\"Lecture Hall L-7\""));
         }
+
+        @Test
+        @DisplayName("Greeting requests log local deterministic engine rather than LLM model")
+        void testGreetingLoggingUsesDeterministicModel() {
+            GeminiClient geminiClient = mock(GeminiClient.class);
+            when(geminiClient.getModelName()).thenReturn("gemini-3.5-flash-lite");
+            when(geminiClient.isConfigured()).thenReturn(false);
+            LabResourceRepository resourceRepo = mock(LabResourceRepository.class);
+            BookingRepository bookingRepo = mock(BookingRepository.class);
+
+            AiRecommendationService service = new AiRecommendationService(
+                    geminiClient, resourceRepo, bookingRepo, objectMapper, aiAgentLogger
+            );
+
+            MDC.put(AiAgentLogger.MDC_CORRELATION_ID, "corr-rec-greeting");
+
+            AiPromptRequest request = new AiPromptRequest("Hi", LocalDate.now(), null);
+            AiRecommendationResponse response = service.getRecommendations(request);
+
+            assertThat(response.followUpQuestion()).isNotNull();
+
+            List<String> logs = getLogMessages();
+            assertThat(logs).anyMatch(l -> l.contains("event=AGENT_START") && l.contains("model=local-deterministic-greeting") &&
+                    l.contains("correlationId=corr-rec-greeting"));
+            assertThat(logs).anyMatch(l -> l.contains("event=AGENT_COMPLETE") && l.contains("outcome=GREETING") &&
+                    l.contains("model=local-deterministic-greeting"));
+            assertThat(logs).noneMatch(l -> l.contains("model=gemini-3.5-flash-lite"));
+        }
+
+        @Test
+        @DisplayName("Unconfigured Gemini logs deterministic fallback engine rather than LLM model")
+        void testUnconfiguredGeminiLoggingUsesFallbackModel() {
+            GeminiClient geminiClient = mock(GeminiClient.class);
+            when(geminiClient.getModelName()).thenReturn("gemini-3.5-flash-lite");
+            when(geminiClient.isConfigured()).thenReturn(false);
+            LabResourceRepository resourceRepo = mock(LabResourceRepository.class);
+            BookingRepository bookingRepo = mock(BookingRepository.class);
+
+            AiRecommendationService service = new AiRecommendationService(
+                    geminiClient, resourceRepo, bookingRepo, objectMapper, aiAgentLogger
+            );
+
+            MDC.put(AiAgentLogger.MDC_CORRELATION_ID, "corr-rec-unconfigured");
+
+            AiPromptRequest request = new AiPromptRequest("booking", null, null);
+            AiRecommendationResponse response = service.getRecommendations(request);
+
+            assertThat(response.followUpQuestion()).isNotNull();
+
+            List<String> logs = getLogMessages();
+            assertThat(logs).anyMatch(l -> l.contains("event=AGENT_START") && l.contains("model=local-deterministic-fallback (no api key)") &&
+                    l.contains("correlationId=corr-rec-unconfigured"));
+            assertThat(logs).anyMatch(l -> l.contains("event=AGENT_COMPLETE") && l.contains("outcome=DATE_REQUIRED") &&
+                    l.contains("model=local-deterministic-fallback (no api key)"));
+            assertThat(logs).noneMatch(l -> l.contains("model=gemini-3.5-flash-lite"));
+        }
     }
 
     @Nested
