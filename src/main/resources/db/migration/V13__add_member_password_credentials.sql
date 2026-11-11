@@ -1,0 +1,2 @@
+ALTER TABLE members ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+ALTER TABLE members ADD COLUMN IF NOT EXISTS credential_version UUID;

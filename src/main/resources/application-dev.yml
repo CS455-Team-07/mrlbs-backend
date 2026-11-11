@@ -1,13 +1,15 @@
 
 spring:
   datasource:
-    url: jdbc:h2:mem:mrlbs
+    url: jdbc:h2:file:./data/mrlbs
     driver-class-name: org.h2.Driver
     username: sa
     password:
   jpa:
     hibernate:
       ddl-auto: update
+  flyway:
+    enabled: false
 
 logging:
   level:

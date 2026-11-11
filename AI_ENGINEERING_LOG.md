@@ -736,3 +736,11 @@ The full offline backend suite passed with 183 tests, 0 failures, and 0 errors. 
 **Final Artifact**
 
 Rebased, tested backend branches for PRs #32 and #33.
+
+#### 2026-11-11 — Password authentication and email recovery
+
+- **Prompt** — “ok now i need to make a few fixes right now there is no password and after first login there is no authentication so add passwords for users and also admin and also a forgot password feature with otp and also change whatever is required including the database and also get the backend running”. After asking for a security assessment, the user requested “ok fix it”.
+- **Implementation** — Added password hashing, server-side sessions with CSRF protection, single-use email codes for password setup and reset, and credential-based session revocation. Removed demo identity endpoints and client-supplied identity handling. Kept existing admin resource scopes.
+- **Verification and changes** — Added member and admin authentication regression tests. Updated tests to expect API authorization errors and isolated the H2 databases used by distinct Spring test contexts. The local backend suite passed all 186 tests with the live RabbitMQ classes excluded. The backend returned health 200 and unauthorized 401 on localhost. Confirmed both credential columns in Neon and authenticated the SMTP connection without sending email.
+- **Final artifact** — Updated backend source, database migration, tests, and configuration. Backend running on port 8080 against Neon PostgreSQL.
+- **Team evaluation and decision** — Pending human review. No acceptance decision recorded.

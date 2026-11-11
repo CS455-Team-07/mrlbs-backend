@@ -30,6 +30,12 @@ public class Member {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "password_hash", length = 255)
+    private String passwordHash;
+
+    @Column(name = "credential_version")
+    private UUID credentialVersion;
+
     protected Member() {
     }
 
@@ -71,5 +77,18 @@ public class Member {
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    public UUID getCredentialVersion() {
+        return credentialVersion;
+    }
+
+    public void replacePassword(String hash) {
+        this.passwordHash = hash;
+        this.credentialVersion = UUID.randomUUID();
     }
 }

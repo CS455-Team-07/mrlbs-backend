@@ -31,9 +31,9 @@ class InputValidationIntegrationTests {
 
     @Test
     void authLogin_rejectsInvalidEmailWithStructuredSafeError() throws Exception {
-        mockMvc.perform(post("/api/auth/login")
+        mockMvc.perform(post("/api/auth/login").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"not-an-email\",\"role\":\"member\"}"))
+                        .content("{\"email\":\"not-an-email\",\"password\":\"valid test password\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Invalid request"))
                 .andExpect(jsonPath("$.detail").value("One or more request fields are invalid."))
@@ -44,19 +44,17 @@ class InputValidationIntegrationTests {
 
     @Test
     void authWorkflowErrors_useTheSameSafeErrorContract() throws Exception {
-        mockMvc.perform(post("/api/auth/login")
+        mockMvc.perform(post("/api/auth/login").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"member@iitk.ac.in\",\"role\":\"admin\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Invalid request"))
-                .andExpect(jsonPath("$.detail").value("The request could not be completed."));
-
-        mockMvc.perform(post("/api/auth/verify-code")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"member@iitk.ac.in\",\"code\":\"123456\"}"))
+                        .content("{\"email\":\"member@iitk.ac.in\",\"password\":\"incorrect password\"}"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.title").value("Invalid request"))
-                .andExpect(jsonPath("$.detail").value("Authentication is required to perform this action."));
+                .andExpect(jsonPath("$.message").value("Email or password is incorrect."));
+
+        mockMvc.perform(post("/api/auth/reset-password").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"member@iitk.ac.in\",\"code\":\"123456\",\"password\":\"new test password\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("The code is invalid or expired. Request a new code if needed."));
     }
 
     @Test
