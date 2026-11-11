@@ -33,9 +33,9 @@ class AiControllerTests {
     }
 
     @Test
-    void unauthenticatedRequest_isRedirectedToLogin() throws Exception {
+    void unauthenticatedRequest_isRejected() throws Exception {
         mockMvc.perform(get("/api/ai/status"))
-                .andExpect(status().is3xxRedirection());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

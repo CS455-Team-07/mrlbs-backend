@@ -7,4 +7,6 @@ import java.util.UUID;
 
 public interface MemberRepository extends JpaRepository<Member, UUID> {
     Optional<Member> findByEmail(String email);
+
+    boolean existsByIdAndCredentialVersion(UUID id, UUID credentialVersion);
 }

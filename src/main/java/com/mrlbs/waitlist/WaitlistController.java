@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -32,9 +31,8 @@ public class WaitlistController {
     @GetMapping
     @PreAuthorize("hasRole('MEMBER')")
     public List<WaitlistResponse> getMyWaitlist(
-            @AuthenticationPrincipal OidcUser user,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail) {
-        String email = user != null ? user.getEmail() : headerEmail;
+            @AuthenticationPrincipal OidcUser user) {
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required to view waitlist");
         }
@@ -45,9 +43,8 @@ public class WaitlistController {
     @PreAuthorize("hasRole('MEMBER')")
     public WaitlistResponse leaveWaitlist(
             @AuthenticationPrincipal OidcUser user,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail,
             @PathVariable UUID id) {
-        String email = user != null ? user.getEmail() : headerEmail;
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required to leave waitlist");
         }
@@ -57,9 +54,8 @@ public class WaitlistController {
     @GetMapping("/offers")
     @PreAuthorize("hasRole('MEMBER')")
     public List<WaitlistOfferResponse> getActiveOffers(
-            @AuthenticationPrincipal OidcUser user,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail) {
-        String email = user != null ? user.getEmail() : headerEmail;
+            @AuthenticationPrincipal OidcUser user) {
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required to view offers");
         }
@@ -70,9 +66,8 @@ public class WaitlistController {
     @PreAuthorize("hasRole('MEMBER')")
     public Booking acceptOffer(
             @AuthenticationPrincipal OidcUser user,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail,
             @PathVariable UUID offerId) {
-        String email = user != null ? user.getEmail() : headerEmail;
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required to accept offer");
         }
@@ -83,9 +78,8 @@ public class WaitlistController {
     @PreAuthorize("hasRole('MEMBER')")
     public WaitlistOfferResponse declineOffer(
             @AuthenticationPrincipal OidcUser user,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail,
             @PathVariable UUID offerId) {
-        String email = user != null ? user.getEmail() : headerEmail;
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required to decline offer");
         }
@@ -96,9 +90,8 @@ public class WaitlistController {
     @GetMapping("/notifications")
     @PreAuthorize("hasRole('MEMBER')")
     public List<NotificationResponse> getNotifications(
-            @AuthenticationPrincipal OidcUser user,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail) {
-        String email = user != null ? user.getEmail() : headerEmail;
+            @AuthenticationPrincipal OidcUser user) {
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required to view notifications");
         }
@@ -111,9 +104,8 @@ public class WaitlistController {
     @PreAuthorize("hasRole('MEMBER')")
     public void markNotificationRead(
             @AuthenticationPrincipal OidcUser user,
-            @RequestHeader(value = "X-User-Email", required = false) String headerEmail,
             @PathVariable UUID id) {
-        String email = user != null ? user.getEmail() : headerEmail;
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required to update notification");
         }

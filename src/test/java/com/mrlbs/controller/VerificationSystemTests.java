@@ -32,6 +32,7 @@ import java.net.http.HttpResponse;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import java.util.UUID;
 import java.util.stream.IntStream;
 
@@ -84,12 +85,11 @@ class VerificationSystemTests {
     void smtpFailureDoesNotReturnSuccessOrLeakInternalDetails() throws Exception {
         doThrow(new MailSendException("internal SMTP diagnostic")).when(mailSender)
                 .send(any(SimpleMailMessage.class));
-        for (String path : List.of("/api/auth/login", "/api/auth/request-code")) {
-            mvc.perform(post(path).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                            .content("{\"email\":\"new-verification-test@iitk.ac.in\",\"role\":\"member\"}"))
-                    .andExpect(status().isInternalServerError())
-                    .andExpect(jsonPath("$.message").value("Could not send the verification code. Please try again."));
-        }
+        mvc.perform(post("/api/auth/forgot-password").with(csrf())
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"new-verification-test@iitk.ac.in\"}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.message").value("Could not send the verification code. Please try again."));
     }
 
     @Test

@@ -82,9 +82,8 @@ public class BookingController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('MEMBER')")
     public BookingResponse submit(@AuthenticationPrincipal OidcUser user,
-                                  @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail,
                                   @Valid @RequestBody BookingRequest request) {
-        String email = user != null ? user.getEmail() : headerEmail;
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new org.springframework.web.server.ResponseStatusException(
                     HttpStatus.UNAUTHORIZED, "Authentication required to submit booking");
@@ -109,9 +108,8 @@ public class BookingController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('MEMBER')")
     public BookingResponse createDraft(@AuthenticationPrincipal OidcUser user,
-                                       @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail,
                                        @Valid @RequestBody BookingRequest request) {
-        String email = user != null ? user.getEmail() : headerEmail;
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new org.springframework.web.server.ResponseStatusException(
                     HttpStatus.UNAUTHORIZED, "Authentication required to create draft");
@@ -129,9 +127,8 @@ public class BookingController {
     @PostMapping("/{id}/confirm")
     @PreAuthorize("hasRole('MEMBER')")
     public BookingResponse confirmDraft(@AuthenticationPrincipal OidcUser user,
-                                        @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail,
                                         @org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
-        String email = user != null ? user.getEmail() : headerEmail;
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new org.springframework.web.server.ResponseStatusException(
                     HttpStatus.UNAUTHORIZED, "Authentication required to confirm booking");
@@ -157,9 +154,8 @@ public class BookingController {
     @PreAuthorize("hasRole('MEMBER')")
     public org.springframework.http.ResponseEntity<BookingResponse> deleteBooking(
             @AuthenticationPrincipal OidcUser user,
-            @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail,
             @org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
-        String email = user != null ? user.getEmail() : headerEmail;
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new org.springframework.web.server.ResponseStatusException(
                     HttpStatus.UNAUTHORIZED, "Authentication required to cancel booking");
@@ -175,9 +171,8 @@ public class BookingController {
     @PreAuthorize("hasRole('MEMBER')")
     public org.springframework.http.ResponseEntity<BookingResponse> cancelBooking(
             @AuthenticationPrincipal OidcUser user,
-            @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail,
             @org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
-        return deleteBooking(user, headerEmail, id);
+        return deleteBooking(user, id);
     }
 
 
@@ -185,9 +180,8 @@ public class BookingController {
 
     @GetMapping
     @PreAuthorize("hasRole('MEMBER')")
-    public List<BookingResponse> history(@AuthenticationPrincipal OidcUser user,
-                                         @org.springframework.web.bind.annotation.RequestHeader(value = "X-User-Email", required = false) String headerEmail) {
-        String email = user != null ? user.getEmail() : headerEmail;
+    public List<BookingResponse> history(@AuthenticationPrincipal OidcUser user) {
+        String email = user != null ? user.getEmail() : null;
         if (email == null || email.isBlank()) {
             throw new org.springframework.web.server.ResponseStatusException(
                     HttpStatus.UNAUTHORIZED, "Authentication required to view booking history");
