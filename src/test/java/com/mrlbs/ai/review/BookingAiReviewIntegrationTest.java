@@ -124,12 +124,12 @@ class BookingAiReviewIntegrationTest {
         assertNull(response2.aiReview());
 
         // 5. Test standalone GET /api/bookings/{id}/ai-review endpoint
-        var singleReview = bookingController.getBookingAiReview(id1);
+        var singleReview = bookingController.getBookingAiReview(adminUser, id1);
         assertEquals(200, singleReview.getStatusCode().value());
         assertNotNull(singleReview.getBody());
         assertEquals(AiReviewRecommendation.RECOMMEND_APPROVAL, singleReview.getBody().recommendation());
 
-        var notFoundReview = bookingController.getBookingAiReview(UUID.randomUUID());
+        var notFoundReview = bookingController.getBookingAiReview(adminUser, UUID.randomUUID());
         assertEquals(404, notFoundReview.getStatusCode().value());
     }
 }

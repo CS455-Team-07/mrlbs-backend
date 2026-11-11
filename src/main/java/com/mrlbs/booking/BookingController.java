@@ -220,8 +220,9 @@ public class BookingController {
     @GetMapping("/{id}/ai-review")
     @PreAuthorize("hasRole('ADMIN')")
     public org.springframework.http.ResponseEntity<com.mrlbs.ai.review.AiReviewSummaryResponse> getBookingAiReview(
+            @AuthenticationPrincipal OidcUser user,
             @org.springframework.web.bind.annotation.PathVariable UUID id) {
-        if (reviewRepository == null) {
+        if (reviewRepository == null || user == null || !bookingService.canReadAiReview(user.getEmail(), id)) {
             return org.springframework.http.ResponseEntity.notFound().build();
         }
         return reviewRepository.findByBookingId(id)

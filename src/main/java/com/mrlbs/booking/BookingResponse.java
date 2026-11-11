@@ -59,18 +59,29 @@ public record BookingResponse(
                 resourceName = "Archived Resource";
             }
         }
+        BookingStatus status = booking.getStatus();
+        String rejectionReason = booking.getRejectionReason();
+        if (status == BookingStatus.CONFIRMED && booking.getEndTime() != null && booking.getEndTime().isBefore(LocalDateTime.now())) {
+            status = BookingStatus.COMPLETED;
+        } else if (status == BookingStatus.PENDING_APPROVAL && booking.getStartTime() != null
+                && !LocalDateTime.now().isBefore(booking.getStartTime().minusMinutes(15))) {
+            status = BookingStatus.REJECTED;
+            if (rejectionReason == null || rejectionReason.isBlank()) {
+                rejectionReason = "Expired: Request was not reviewed by administrator before the deadline (15 minutes prior to start time).";
+            }
+        }
         return new BookingResponse(booking.getId(),
                 resourceId,
                 resourceName != null ? resourceName : "Archived Resource",
                 booking.getStartTime(),
                 booking.getEndTime(),
-                booking.getStatus(),
+                status,
                 booking.getCreditCost(),
                 clashes,
                 booking.getMemberId(),
                 waitlist,
                 queuePosition,
                 memberBalance,
-                booking.getRejectionReason());
+                rejectionReason);
     }
 }

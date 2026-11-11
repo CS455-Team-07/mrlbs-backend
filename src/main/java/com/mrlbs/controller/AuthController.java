@@ -114,7 +114,7 @@ public class AuthController {
                 ));
             } catch (Exception e) {
                 return ResponseEntity.internalServerError().body(Map.of(
-                        "message", "Could not send verification code: " + e.getMessage()
+                        "message", "Could not send the verification code. Please try again."
                 ));
             }
         }

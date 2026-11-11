@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,8 +41,8 @@ class ResourceSearchServiceTests {
         LocalDate date = LocalDate.of(2030, 5, 1);
         when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
                 .thenReturn(List.of(resource));
-        when(bookingRepository.findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
-                eq(id), eq(BookingStatus.CONFIRMED), any(), any())).thenReturn(List.of());
+        when(bookingRepository.findAvailabilityWindows(List.of(id), BookingStatus.CONFIRMED,
+                date.atStartOfDay(), date.plusDays(1).atStartOfDay())).thenReturn(List.of());
 
         var results = service.search("micro", date, 2);
 
@@ -55,13 +56,12 @@ class ResourceSearchServiceTests {
         UUID id = UUID.randomUUID();
         LabResource resource = resource(id, "Lecture Hall", "Lecture Hall", 54);
         LocalDate date = LocalDate.of(2026, 10, 17);
-        Booking partialBooking = new Booking("user@iitk.ac.in", resource,
-                date.atTime(2, 0), date.atTime(3, 0), BookingStatus.CONFIRMED, BigDecimal.ZERO);
+        var partialBooking = window(id, date.atTime(2, 0), date.atTime(3, 0));
 
         when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
                 .thenReturn(List.of(resource));
-        when(bookingRepository.findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
-                eq(id), eq(BookingStatus.CONFIRMED), any(), any())).thenReturn(List.of(partialBooking));
+        when(bookingRepository.findAvailabilityWindows(List.of(id), BookingStatus.CONFIRMED,
+                date.atStartOfDay(), date.plusDays(1).atStartOfDay())).thenReturn(List.of(partialBooking));
 
         var results = service.search("Lecture Hall", date, null);
 
@@ -74,13 +74,12 @@ class ResourceSearchServiceTests {
         UUID id = UUID.randomUUID();
         LabResource resource = resource(id, "Lecture Hall", "Lecture Hall", 54);
         LocalDate date = LocalDate.of(2026, 10, 17);
-        Booking fullDay = new Booking("user@iitk.ac.in", resource,
-                date.atStartOfDay(), date.plusDays(1).atStartOfDay(), BookingStatus.CONFIRMED, BigDecimal.ZERO);
+        var fullDay = window(id, date.atStartOfDay(), date.plusDays(1).atStartOfDay());
 
         when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
                 .thenReturn(List.of(resource));
-        when(bookingRepository.findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
-                eq(id), eq(BookingStatus.CONFIRMED), any(), any())).thenReturn(List.of(fullDay));
+        when(bookingRepository.findAvailabilityWindows(List.of(id), BookingStatus.CONFIRMED,
+                date.atStartOfDay(), date.plusDays(1).atStartOfDay())).thenReturn(List.of(fullDay));
 
         var results = service.search("Lecture Hall", date, null);
 
@@ -119,6 +118,60 @@ class ResourceSearchServiceTests {
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.availability(id, LocalDate.of(2030, 5, 1)));
+    }
+
+    @Test
+    void slotBasedSearchUsesBatchLookup() {
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+        LabResource res1 = resource(id1, "Resource 1", "Server", 10);
+        LabResource res2 = resource(id2, "Resource 2", "Server", 10);
+        LocalDateTime start = LocalDateTime.of(2030, 11, 10, 10, 0);
+        LocalDateTime end = LocalDateTime.of(2030, 11, 10, 12, 0);
+
+        when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+                .thenReturn(List.of(res1, res2));
+        var bookedWindow = mock(BookingRepository.AvailabilityWindow.class);
+        when(bookedWindow.getResourceId()).thenReturn(id1);
+        when(bookingRepository.findAvailabilityWindows(List.of(id1, id2), BookingStatus.CONFIRMED, start, end))
+                .thenReturn(List.of(bookedWindow));
+
+        var results = service.search("Server", start.toLocalDate(), start, end, null);
+
+        assertEquals(2, results.size());
+        assertFalse(results.stream().filter(r -> r.id().equals(id1)).findFirst().get().available());
+        assertTrue(results.stream().filter(r -> r.id().equals(id2)).findFirst().get().available());
+    }
+
+    @Test
+    void presentDayAvailabilityStartsFromNextHour() {
+        UUID id = UUID.randomUUID();
+        LabResource res = resource(id, "Resource 1", "Server", 10);
+        LocalDate today = LocalDate.now();
+        LocalDateTime nextHour = LocalDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.HOURS).plusHours(1);
+
+        when(resourceRepository.findById(id)).thenReturn(java.util.Optional.of(res));
+        when(bookingRepository.findByResourceIdAndStatusAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
+                eq(id), eq(BookingStatus.CONFIRMED), any(), any()))
+                .thenReturn(List.of());
+
+        var availability = service.availability(id, today);
+
+        if (nextHour.isBefore(today.plusDays(1).atStartOfDay())) {
+            assertFalse(availability.availableSlots().isEmpty());
+            assertEquals(nextHour, availability.availableSlots().get(0).startTime());
+        } else {
+            // Day has ended
+            assertTrue(availability.availableSlots().isEmpty());
+        }
+    }
+
+    private static BookingRepository.AvailabilityWindow window(UUID resourceId, LocalDateTime start, LocalDateTime end) {
+        var window = mock(BookingRepository.AvailabilityWindow.class);
+        when(window.getResourceId()).thenReturn(resourceId);
+        when(window.getStartTime()).thenReturn(start);
+        when(window.getEndTime()).thenReturn(end);
+        return window;
     }
 
     private static LabResource resource(UUID id, String name, String type, int capacity) {
