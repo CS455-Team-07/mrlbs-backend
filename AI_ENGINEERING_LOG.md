@@ -366,13 +366,13 @@ Accepted
 **Reason:**
 It provides the required admin queue and queue count without broadening the work beyond the approval workflow.
 
-#### 2026-11-04 ó NFR-1.2 / US-3: Availability search results within 1 second under load
+#### 2026-11-04 ‚Äî NFR-1.2 / US-3: Availability search results within 1 second under load
 
 **Task / Context:**
 Implement NFR-1.2 / US-3 to ensure availability search queries return results within 1 second under expected load, and make matching resources visible within 1 second when the user enters either only date or even timings, preserving all existing functionality and features.
 
 **Prompt:**
-User prompt: ìsee first go through all the files which are present so that you will know how the present implementation is and then without changing any existng functionality and features do my task which iswhen the user enters either oonly date or even timings the the matching resources should be visible within 1sec so make this changeî referencing Jira ticket ìAvailability search results returned within 1 second under expected loadî (Acceptance Criteria: Availability search requests are measured under expected load; search results returned within 1 second; applies to availability-search workflow; verified using repeatable response-time testing; Traceability: Requirement NFR-1.2, User Story US-3).
+User prompt: ‚Äúsee first go through all the files which are present so that you will know how the present implementation is and then without changing any existng functionality and features do my task which iswhen the user enters either oonly date or even timings the the matching resources should be visible within 1sec so make this change‚Äù referencing Jira ticket ‚ÄúAvailability search results returned within 1 second under expected load‚Äù (Acceptance Criteria: Availability search requests are measured under expected load; search results returned within 1 second; applies to availability-search workflow; verified using repeatable response-time testing; Traceability: Requirement NFR-1.2, User Story US-3).
 
 **AI Output:**
 1. Optimized ResourceSearchService to replace N+1 database round-trips with batch lookups (indConfirmedBookedResourceIdsInSlot and indConfirmedBookingsInWindow) with in-memory slot availability evaluation, reducing query count from N+1 down to 1-2 fast queries.
@@ -405,3 +405,80 @@ Accepted
 
 **Reason:**
 Fully satisfies Jira NFR-1.2 / US-3 acceptance criteria and the user's requirement for instant (< 1 second) search visibility upon entering date or timings without changing or breaking any existing features.
+
+#### 2026-11-06 ‚Äî Test evidence and reliability fixes
+
+**Task / Context**
+
+Collect verification evidence and fix meaningful defects on branches based on backend `main` at `024af0c` and frontend `main` at `bce1818`.
+
+**Prompt**
+
+The user requested unit, integration, system, adversarial, coverage, concurrency, security, performance, and recovery reports. They also requested evidence of at least five fixes, GitHub issues, and a pull request.
+
+**AI Output**
+
+Reproduced unauthorized AI review access across admin categories, simultaneous OTP reuse, misleading SMTP success, and query amplification on catalog search. Inspected the PostgreSQL profile and identified embedded credential defaults. Recorded the frontend baseline failures.
+
+**Student / Team Evaluation**
+
+Pending human review.
+
+**Errors / Risks / Hallucinations**
+
+Live AMQP tests and production infrastructure were outside the local runs. H2 concurrency and loopback latency differ from deployed PostgreSQL and network behavior. Credentials removed from the profile may remain in Git history and require rotation.
+
+**Changes Made After Evaluation**
+
+Restricted direct review reads by admin resource scope, made OTP consumption atomic, removed code logging and invalidated failed deliveries, required runtime database settings, and batched availability lookups. A strict Mockito test also needed an obsolete stub removed. The local JaCoCo run passed 159 backend tests, and Vitest passed 46 frontend tests.
+
+**Final Artifact / Output**
+
+`docs/verification-report.md`, the regression tests, and the five fixes tracked in GitHub issues #36 through #40.
+
+**Decision**
+
+Pending human review.
+
+**Reason**
+
+The report ties each production fix to a baseline failure or source inspection and provides reproducible commands for local verification.
+
+
+#### 2026-11-11 ‚Äî Merge conflict resolution for PR #35
+
+**Task / Context**
+
+Resolve conflicts in the backend search_results branch for PR #35 against the latest backend main, preserve both the availability-search work and changes already on main, run the backend suite, and push the branch.
+
+**Prompt**
+
+The user requested conflict resolution and a push for PR #35, titled ‚ÄúBOOK-116,BOOK-114_search_results, credit reset and bugs‚Äù. After reaching the usage limit, the user asked to continue the fix.
+
+**AI Output**
+
+Merged the latest main into search_results. Preserved the branch's credit-reset and pending-approval expiry behavior, combined the search feature with main's batched availability query, and retained main's AI review resource-scope check. Reconciled the affected tests and updated the performance fixture date. The first complete run exposed a stale query-count assertion. Updated it to expect one batched availability query per search.
+
+**Student / Team Evaluation**
+
+Pending human review.
+
+**Errors / Risks / Hallucinations**
+
+The first complete run had one failing assertion because it expected two queries per search. After correcting the expectation, the backend suite passed 171 tests. The explicitly excluded live RabbitMQ test classes were not run. Local RabbitMQ was unavailable during integration tests, which exercised the application's fallback behavior.
+
+**Changes Made After Evaluation**
+
+Resolved conflicts in the booking service, search service, booking service tests, search service tests, and AI engineering log. Preserved both the branch's search logic and main's batched availability-window query. Updated VerificationSystemTests to assert one availability query per request. Made the performance test use a future date relative to execution.
+
+**Final Artifact / Output**
+
+Conflict-resolution merge commit on backend branch search_results for PR #35.
+
+**Decision**
+
+Pending human review.
+
+**Reason**
+
+The merged branch passed the backend suite with the two live RabbitMQ classes excluded.

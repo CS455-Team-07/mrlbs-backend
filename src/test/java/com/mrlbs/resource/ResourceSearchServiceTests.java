@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,8 +41,8 @@ class ResourceSearchServiceTests {
         LocalDate date = LocalDate.of(2030, 5, 1);
         when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
                 .thenReturn(List.of(resource));
-        when(bookingRepository.findConfirmedBookingsInWindow(any(), any()))
-                .thenReturn(List.of());
+        when(bookingRepository.findAvailabilityWindows(List.of(id), BookingStatus.CONFIRMED,
+                date.atStartOfDay(), date.plusDays(1).atStartOfDay())).thenReturn(List.of());
 
         var results = service.search("micro", date, 2);
 
@@ -55,13 +56,12 @@ class ResourceSearchServiceTests {
         UUID id = UUID.randomUUID();
         LabResource resource = resource(id, "Lecture Hall", "Lecture Hall", 54);
         LocalDate date = LocalDate.of(2026, 10, 17);
-        Booking partialBooking = new Booking("user@iitk.ac.in", resource,
-                date.atTime(2, 0), date.atTime(3, 0), BookingStatus.CONFIRMED, BigDecimal.ZERO);
+        var partialBooking = window(id, date.atTime(2, 0), date.atTime(3, 0));
 
         when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
                 .thenReturn(List.of(resource));
-        when(bookingRepository.findConfirmedBookingsInWindow(any(), any()))
-                .thenReturn(List.of(partialBooking));
+        when(bookingRepository.findAvailabilityWindows(List.of(id), BookingStatus.CONFIRMED,
+                date.atStartOfDay(), date.plusDays(1).atStartOfDay())).thenReturn(List.of(partialBooking));
 
         var results = service.search("Lecture Hall", date, null);
 
@@ -74,13 +74,12 @@ class ResourceSearchServiceTests {
         UUID id = UUID.randomUUID();
         LabResource resource = resource(id, "Lecture Hall", "Lecture Hall", 54);
         LocalDate date = LocalDate.of(2026, 10, 17);
-        Booking fullDay = new Booking("user@iitk.ac.in", resource,
-                date.atStartOfDay(), date.plusDays(1).atStartOfDay(), BookingStatus.CONFIRMED, BigDecimal.ZERO);
+        var fullDay = window(id, date.atStartOfDay(), date.plusDays(1).atStartOfDay());
 
         when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
                 .thenReturn(List.of(resource));
-        when(bookingRepository.findConfirmedBookingsInWindow(any(), any()))
-                .thenReturn(List.of(fullDay));
+        when(bookingRepository.findAvailabilityWindows(List.of(id), BookingStatus.CONFIRMED,
+                date.atStartOfDay(), date.plusDays(1).atStartOfDay())).thenReturn(List.of(fullDay));
 
         var results = service.search("Lecture Hall", date, null);
 
@@ -132,8 +131,10 @@ class ResourceSearchServiceTests {
 
         when(resourceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
                 .thenReturn(List.of(res1, res2));
-        when(bookingRepository.findConfirmedBookedResourceIdsInSlot(eq(start), eq(end)))
-                .thenReturn(List.of(id1));
+        var bookedWindow = mock(BookingRepository.AvailabilityWindow.class);
+        when(bookedWindow.getResourceId()).thenReturn(id1);
+        when(bookingRepository.findAvailabilityWindows(List.of(id1, id2), BookingStatus.CONFIRMED, start, end))
+                .thenReturn(List.of(bookedWindow));
 
         var results = service.search("Server", start.toLocalDate(), start, end, null);
 
@@ -163,6 +164,14 @@ class ResourceSearchServiceTests {
             // Day has ended
             assertTrue(availability.availableSlots().isEmpty());
         }
+    }
+
+    private static BookingRepository.AvailabilityWindow window(UUID resourceId, LocalDateTime start, LocalDateTime end) {
+        var window = mock(BookingRepository.AvailabilityWindow.class);
+        when(window.getResourceId()).thenReturn(resourceId);
+        when(window.getStartTime()).thenReturn(start);
+        when(window.getEndTime()).thenReturn(end);
+        return window;
     }
 
     private static LabResource resource(UUID id, String name, String type, int capacity) {

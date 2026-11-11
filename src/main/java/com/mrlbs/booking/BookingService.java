@@ -705,6 +705,14 @@ public class BookingService {
         }
     }
 
+    @Transactional(readOnly = true)
+    public boolean canReadAiReview(String adminEmail, UUID bookingId) {
+        validateIdentity(adminEmail);
+        return AdminResourceScope.scopeForEmail(adminEmail)
+                .map(scope -> bookingRepository.existsByIdAndResource_TypeIgnoreCase(bookingId, scope))
+                .orElse(true);
+    }
+
     @Transactional
     public List<Booking> pendingApprovalsForAdmin(String adminEmail, String scope) {
         validateIdentity(adminEmail);
