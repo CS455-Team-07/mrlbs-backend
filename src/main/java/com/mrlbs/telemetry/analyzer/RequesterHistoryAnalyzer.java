@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
@@ -85,8 +86,9 @@ public class RequesterHistoryAnalyzer {
 
         int priorBookingsTotal = priorBookings.size();
 
+        LocalDateTime now = LocalDateTime.now();
         int priorBookingsCompleted = (int) priorBookings.stream()
-                .filter(b -> b.getStatus() == BookingStatus.COMPLETED)
+                .filter(b -> b.getStatus() == BookingStatus.COMPLETED || (b.getStatus() == BookingStatus.CONFIRMED && b.getEndTime() != null && b.getEndTime().isBefore(now)))
                 .count();
 
         int priorBookingsCancelled = (int) priorBookings.stream()
@@ -122,7 +124,7 @@ public class RequesterHistoryAnalyzer {
 
         if (externalResourceId != null) {
             List<Booking> completedPastBookingsOnTarget = priorBookings.stream()
-                    .filter(b -> b.getStatus() == BookingStatus.COMPLETED)
+                    .filter(b -> b.getStatus() == BookingStatus.COMPLETED || (b.getStatus() == BookingStatus.CONFIRMED && b.getEndTime() != null && b.getEndTime().isBefore(now)))
                     .filter(b -> b.getResource() != null && Objects.equals(b.getResource().getId(), targetResourceId))
                     .toList();
 

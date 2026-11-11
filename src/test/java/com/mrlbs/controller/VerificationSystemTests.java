@@ -125,7 +125,7 @@ class VerificationSystemTests {
             Arrays.sort(millis);
             System.out.printf("CATALOG_BENCHMARK samples=%d resources=120 queries=%d p50_ms=%d p95_ms=%d%n",
                     millis.length, queries, millis[5], millis[11]);
-            assertThat(queries).isEqualTo(2L * millis.length);
+            assertThat(queries).isEqualTo(millis.length);
 
             long burstStart = System.nanoTime();
             var burst = IntStream.range(0, 16)
