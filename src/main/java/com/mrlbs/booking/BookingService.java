@@ -4,6 +4,7 @@ import com.mrlbs.booking.credit.CreditAccount;
 import com.mrlbs.booking.credit.CreditAccountRepository;
 import com.mrlbs.booking.pricing.BookingPriceCalculator;
 import com.mrlbs.booking.pricing.PricingPolicy;
+import com.mrlbs.notification.InAppNotification;
 import com.mrlbs.resource.BookingRule;
 import com.mrlbs.resource.LabResource;
 import com.mrlbs.resource.LabResourceRepository;
@@ -748,7 +749,7 @@ public class BookingService {
     @Transactional
     public Booking reviewApprovalDecision(String adminEmail, UUID bookingId, boolean approved, String rejectionReason) {
         validateIdentity(adminEmail);
-        Booking booking = bookingRepository.findById(bookingId)
+        Booking booking = bookingRepository.findByIdForUpdate(bookingId)
                 .orElseThrow(() -> new BookingRejectedException(BookingRejectionReason.RESOURCE_NOT_FOUND,
                         "Booking was not found."));
 
@@ -856,15 +857,8 @@ public class BookingService {
                     }
                 }
 
-                // In-app notification for credit deduction
-                if (notificationRepository != null && savedBooking.getMemberId() != null) {
-                    com.mrlbs.notification.InAppNotification notif = new com.mrlbs.notification.InAppNotification(
-                            savedBooking.getMemberId(),
-                            "Credits Deducted",
-                            "Your booking request for " + resource.getName() + " has been approved and placed on the waitlist. " + cost + " credits deducted. Remaining balance: " + account.getBalance() + " credits."
-                    );
-                    notificationRepository.save(notif);
-                }
+                recordDecisionNotification(savedBooking, resource, "was approved and placed on the waitlist",
+                        cost + " credits deducted. Remaining balance: " + account.getBalance() + " credits.");
 
                 return savedBooking;
             }
@@ -888,15 +882,8 @@ public class BookingService {
             booking.setStatus(BookingStatus.CONFIRMED);
             Booking savedBooking = bookingRepository.save(booking);
 
-            // In-app notification for credit deduction
-            if (notificationRepository != null && savedBooking.getMemberId() != null) {
-                com.mrlbs.notification.InAppNotification notif = new com.mrlbs.notification.InAppNotification(
-                        savedBooking.getMemberId(),
-                        "Credits Deducted",
-                        "Your booking request for " + resource.getName() + " has been approved and confirmed. " + cost + " credits deducted. Remaining balance: " + account.getBalance() + " credits."
-                );
-                notificationRepository.save(notif);
-            }
+            recordDecisionNotification(savedBooking, resource, "was approved and confirmed",
+                    cost + " credits deducted. Remaining balance: " + account.getBalance() + " credits.");
 
             return savedBooking;
         }
@@ -919,18 +906,25 @@ public class BookingService {
             });
         }
 
-        // Send rejection notification to the member
-        if (notificationRepository != null && saved.getMemberId() != null) {
-            String resName = saved.getResource() != null ? saved.getResource().getName() : "Resource";
-            com.mrlbs.notification.InAppNotification notif = new com.mrlbs.notification.InAppNotification(
-                    saved.getMemberId(),
-                    "Booking Request Rejected",
-                    "Your booking request for " + resName + " was rejected. Reason: " + rejectionReason.trim()
-            );
-            notificationRepository.save(notif);
-        }
-
+        recordDecisionNotification(saved, resource, "was rejected", "Reason: " + saved.getRejectionReason());
         return saved;
+    }
+
+    private void recordDecisionNotification(Booking booking, LabResource resource, String outcome, String detail) {
+        if (notificationRepository == null || booking.getMemberId() == null) {
+            return;
+        }
+        String title = booking.getStatus() == BookingStatus.REJECTED
+                ? "Booking Request Rejected" : "Booking Request Approved";
+        String message = "Your booking request for " + resource.getName() + " ("
+                + booking.getStartTime() + " to " + booking.getEndTime() + ", booking ID " + booking.getId()
+                + ") " + outcome + ".";
+        String detailedMessage = message + " " + detail;
+        if (detailedMessage.length() > InAppNotification.MAX_MESSAGE_LENGTH) {
+            detailedMessage = message + " See your booking history for details.";
+        }
+        // The inbox entry and the booking decision become visible in the same commit.
+        notificationRepository.save(new InAppNotification(booking.getMemberId(), title, detailedMessage));
     }
 
     public String resolveMemberEmail(Booking booking) {

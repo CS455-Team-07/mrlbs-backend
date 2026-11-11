@@ -260,7 +260,7 @@ class BookingServiceTests {
                 BookingStatus.PENDING_APPROVAL, BigDecimal.ZERO);
         pending.setId(bookingId);
 
-        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(pending));
+        when(bookingRepository.findByIdForUpdate(bookingId)).thenReturn(Optional.of(pending));
         when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
         when(creditAccountRepository.findForUpdate("member@iitk.ac.in"))
                 .thenReturn(Optional.of(new CreditAccount("member@iitk.ac.in", new BigDecimal("100"))));
@@ -577,7 +577,7 @@ class BookingServiceTests {
         pending.setId(bookingId);
         pending.setMemberId(memberId);
 
-        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(pending));
+        when(bookingRepository.findByIdForUpdate(bookingId)).thenReturn(Optional.of(pending));
         when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
 
         // Slot is already occupied by existing confirmed booking
@@ -616,7 +616,7 @@ class BookingServiceTests {
                 BookingStatus.PENDING_APPROVAL, BigDecimal.ZERO);
         pending.setId(bookingId);
 
-        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(pending));
+        when(bookingRepository.findByIdForUpdate(bookingId)).thenReturn(Optional.of(pending));
         when(bookingRepository.findOverlappingConfirmedForUpdate(any(), any(), any())).thenReturn(java.util.List.of());
 
         // Member only has 2 credits, cost will be 4
@@ -645,7 +645,7 @@ class BookingServiceTests {
                 BookingStatus.PENDING_APPROVAL, BigDecimal.ZERO);
         pending.setId(bookingId);
 
-        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(pending));
+        when(bookingRepository.findByIdForUpdate(bookingId)).thenReturn(Optional.of(pending));
 
         // Existing booking only overlaps partially (e.g. from start+30min to end+30min)
         Booking partialExisting = new Booking("occupant@iitk.ac.in", lectureHall,
@@ -678,7 +678,7 @@ class BookingServiceTests {
                 BookingStatus.PENDING_APPROVAL, BigDecimal.ZERO);
         pending.setId(bookingId);
 
-        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(pending));
+        when(bookingRepository.findByIdForUpdate(bookingId)).thenReturn(Optional.of(pending));
         when(bookingRepository.findOverlappingConfirmedForUpdate(any(), any(), any())).thenReturn(java.util.List.of());
 
         // Confirmed booking within 30-min buffer window (e.g. ends 10 minutes before start)
@@ -708,7 +708,7 @@ class BookingServiceTests {
         pending.setId(bookingId);
         pending.setMemberId(memberId);
 
-        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(pending));
+        when(bookingRepository.findByIdForUpdate(bookingId)).thenReturn(Optional.of(pending));
         when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
 
         Booking rejected = service.reviewApprovalDecision("lhc@iitk.ac.in", bookingId, false, "Resource maintenance scheduled.");
@@ -730,7 +730,7 @@ class BookingServiceTests {
                 BookingStatus.PENDING_APPROVAL, BigDecimal.ZERO);
         pending.setId(bookingId);
 
-        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(pending));
+        when(bookingRepository.findByIdForUpdate(bookingId)).thenReturn(Optional.of(pending));
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.reviewApprovalDecision("lhc@iitk.ac.in", bookingId, false, "   "));
@@ -787,7 +787,7 @@ class BookingServiceTests {
         pending2.setId(bookingId2);
         pending2.setMemberId(memberId2);
 
-        when(bookingRepository.findById(bookingId1)).thenReturn(Optional.of(pending1));
+        when(bookingRepository.findByIdForUpdate(bookingId1)).thenReturn(Optional.of(pending1));
         // Simulate repository returning pending2 among overlapping/window bookings
         when(bookingRepository.findOverlappingConfirmedForUpdate(any(), any(), any()))
                 .thenReturn(java.util.List.of(pending2));

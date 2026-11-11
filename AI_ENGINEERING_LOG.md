@@ -366,6 +366,19 @@ Accepted
 **Reason:**
 It provides the required admin queue and queue count without broadening the work beyond the approval workflow.
 
+#### 2026-11-06 — BOOK-96 approval decision notifications
+
+**Task / Context**
+
+Implement FR-9.3 and US-9 for the member who requested an approval-required booking.
+
+**Prompt**
+
+The user provided BOOK-96, “Notify requesting Member of approval decision within 60 seconds,” with acceptance criteria for both decision outcomes, post-recording delivery, and booking identification. The user requested that the implementation be pushed.
+
+**AI Output**
+
+Traced the existing in-app inbox and eight-second member dashboard polling. Added explicit booking decision notices with the resource, time window, and booking ID. The notice is staged after the booking is saved and becomes visible in the same commit.
 #### 2026-11-04 — NFR-1.2 / US-3: Availability search results within 1 second under load
 
 **Task / Context:**
@@ -376,9 +389,11 @@ User prompt: “see first go through all the files which are present so that you
 
 **AI Output:**
 1. Optimized ResourceSearchService to replace N+1 database round-trips with batch lookups (indConfirmedBookedResourceIdsInSlot and indConfirmedBookingsInWindow) with in-memory slot availability evaluation, reducing query count from N+1 down to 1-2 fast queries.
-2. Added database migration V13__add_search_performance_indexes.sql with composite indexes on esources(active, resource_type) and ookings(status, start_time, end_time).
+2. Added database migration V13__add_search_performance_indexes.sql with composite indexes on 
+esources(active, resource_type) and ookings(status, start_time, end_time).
 3. Updated frontend MemberDashboard.tsx to automatically trigger an instant debounced search (350ms) whenever date or timings are entered, making matching resources visible within 1 second without requiring an explicit button click, while keeping form submission intact for backward compatibility.
-4. Removed equired attribute from the Date input in MemberDashboard.tsx and supported searching with timings even when date is omitted (defaulting to the current day).
+4. Removed 
+equired attribute from the Date input in MemberDashboard.tsx and supported searching with timings even when date is omitted (defaulting to the current day).
 5. Configured Surefire in pom.xml with dynamic ByteBuddy agent attachment.
 6. Added repeatable response-time verification suite ResourceSearchPerformanceTest.java simulating 100 active resources under load and verifying sub-second response times.
 
@@ -426,6 +441,17 @@ Pending human review.
 
 **Errors / Risks / Hallucinations**
 
+Four new checks failed against the baseline. The approval notice was labeled as a credit debit, the largest valid rejection reason overflowed the notification field, and competing reviewers could record duplicate notices. The local inbox test measures visibility through the authenticated API and uses the existing polling path for dashboard refresh.
+
+**Changes Made After Evaluation**
+
+Reused the booking row lock to serialize decisions. Kept concise reasons in the inbox and directed members to booking history for longer explanations. Added integration checks for confirmed and waitlisted approvals, rejection, delivery to the requesting member, transaction rollback, and competing decisions.
+
+The local run passed 158 tests. It excluded two live RabbitMQ test classes and the pre-existing strict Mockito failure in the approval-queue ordering test.
+
+**Final Artifact / Output**
+
+The BOOK-96 backend implementation and its regression tests.
 Live AMQP tests and production infrastructure were outside the local runs. H2 concurrency and loopback latency differ from deployed PostgreSQL and network behavior. Credentials removed from the profile may remain in Git history and require rotation.
 
 **Changes Made After Evaluation**
@@ -481,4 +507,5 @@ Pending human review.
 
 **Reason**
 
+The decision and the corresponding in-app message commit atomically, so a rolled-back decision cannot appear in the member inbox.
 The merged branch passed the backend suite with the two live RabbitMQ classes excluded.
