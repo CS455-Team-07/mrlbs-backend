@@ -97,7 +97,21 @@ public class AiRecommendationService {
         if (geminiClient.isConfigured()) {
             Optional<ExtractedIntent> aiIntent = parseIntentWithGemini(prompt, today);
             if (aiIntent.isPresent()) {
-                return new ParsedIntentResult(aiIntent.get(), geminiClient.getModelName());
+                ExtractedIntent parsed = aiIntent.get();
+                LocalDate finalDate = parsed.date() != null ? parsed.date() : localIntent.date();
+                String finalType = (parsed.resourceType() != null && !parsed.resourceType().isBlank())
+                        ? parsed.resourceType() : localIntent.resourceType();
+                LocalTime finalStart = parsed.startTime() != null ? parsed.startTime() : localIntent.startTime();
+                LocalTime finalEnd = parsed.endTime() != null ? parsed.endTime() : localIntent.endTime();
+                Integer finalCap = parsed.minCapacity() != null ? parsed.minCapacity() : localIntent.minCapacity();
+                if (finalCap != null && (finalCap >= 2000 || finalCap == today.getYear() || finalCap == today.getYear() + 1)) {
+                    finalCap = null;
+                }
+                String finalClarifying = (finalDate == null)
+                        ? "Could you please specify which future date and time you need this resource for (e.g., today, tomorrow, or YYYY-MM-DD)?"
+                        : null;
+                ExtractedIntent enriched = new ExtractedIntent(finalType, finalDate, finalStart, finalEnd, finalCap, finalClarifying);
+                return new ParsedIntentResult(enriched, geminiClient.getModelName());
             }
             return new ParsedIntentResult(localIntent, "deterministic-fallback-after-error");
         }
@@ -130,7 +144,7 @@ public class AiRecommendationService {
             return true;
         }
         // Direct refinement chips (e.g. "10:00 - 12:00", "50+ seats", "today", "tomorrow")
-        if (lower.length() < 25 && (intent.startTime() != null || (intent.minCapacity() != null && lower.contains("seat")) || lower.equals("today") || lower.equals("tomorrow"))) {
+        if (lower.length() < 25 && (intent.startTime() != null || (intent.minCapacity() != null && lower.contains("seat")) || lower.equals("today") || lower.equals("tomorrow") || (intent.hasDate() && !intent.date().isBefore(LocalDate.now())))) {
             return true;
         }
         return false;
@@ -140,7 +154,11 @@ public class AiRecommendationService {
         String correlationId = org.slf4j.MDC.get(com.mrlbs.ai.observability.AiAgentLogger.MDC_CORRELATION_ID);
         String systemInstruction = String.format(
                 "You are the MRLBS AI intent parser for Indian Institute of Technology Kanpur (IITK) resource bookings. " +
-                        "Reference date: %s (%d). " +
+                        "Current reference date (today): %s (%d). " +
+                        "Rules: " +
+                        "- If the user specifies or refers to a date (e.g. 'nov 12', 'tomorrow', 'today', '2026-10-15'), compute the exact ISO date (YYYY-MM-DD). " +
+                        "- If no date was specified, set date to null and clarifyingQuestion to 'Could you please specify which future date and time you need this resource for?'. " +
+                        "- The year (%d) must NOT be extracted as minCapacity. " +
                         "Campus building context & type mappings: " +
                         "- 'LHC' or 'Lecture Hall Complex' -> resourceType: 'Lecture Hall' (e.g. L-7, L-1, classrooms). " +
                         "- 'KD' or 'KD Building' -> resourceType: 'KD Lab' (computer science / data labs). " +
@@ -153,9 +171,9 @@ public class AiRecommendationService {
                         "\"endTime\": \"HH:mm\"|null, " +
                         "\"minCapacity\": integer|null, " +
                         "\"clarifyingQuestion\": string|null}. " +
-                        "Rule: If no specific or relative date was given, set date to null and clarifyingQuestion to 'Could you please specify which date you need this resource for?'. " +
+                        "Rule: If no specific or relative date was given, set date to null and clarifyingQuestion to 'Could you please specify which future date and time you need this resource for?'. " +
                         "Output ONLY valid JSON.",
-                today.toString(), today.getYear()
+                today.toString(), today.getYear(), today.getYear()
         );
 
         long startNs = System.nanoTime();
@@ -181,6 +199,9 @@ public class AiRecommendationService {
             String startTimeStr = root.path("startTime").isNull() ? null : root.path("startTime").asText(null);
             String endTimeStr = root.path("endTime").isNull() ? null : root.path("endTime").asText(null);
             Integer minCapacity = root.path("minCapacity").isInt() ? root.path("minCapacity").asInt() : null;
+            if (minCapacity != null && (minCapacity >= 2000 || minCapacity == today.getYear() || minCapacity == today.getYear() + 1)) {
+                minCapacity = null;
+            }
             String clarifying = root.path("clarifyingQuestion").isNull() ? null : root.path("clarifyingQuestion").asText(null);
 
             String normalizedType = normalizeResourceType(resourceType);
@@ -266,8 +287,10 @@ public class AiRecommendationService {
         int matchedDayNumber = -1;
         if (lower.contains("tomorrow")) {
             date = today.plusDays(1);
+            matchedDayNumber = date.getDayOfMonth();
         } else if (lower.contains("today")) {
             date = today;
+            matchedDayNumber = date.getDayOfMonth();
         } else {
             Matcher dateMatcher = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})").matcher(lower);
             if (dateMatcher.find()) {
@@ -276,25 +299,21 @@ public class AiRecommendationService {
                     matchedDayNumber = date.getDayOfMonth();
                 } catch (Exception ignored) {}
             } else {
-                // Support spaces in day numbers e.g. "19 th oct", "19th oct", "19 oct"
-                Matcher monthMatcher = Pattern.compile("(\\d{1,2})\\s*(?:st|nd|rd|th)?\\s+(?:of\\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)").matcher(lower);
-                if (monthMatcher.find()) {
-                    int day = Integer.parseInt(monthMatcher.group(1));
-                    int month = parseMonth(monthMatcher.group(2));
-                    if (month > 0 && day > 0 && day <= 31) {
-                        int year = today.getYear();
-                        LocalDate candidate = LocalDate.of(year, month, day);
-                        if (candidate.isBefore(today.minusMonths(1))) {
-                            candidate = candidate.plusYears(1);
-                        }
-                        date = candidate;
-                        matchedDayNumber = day;
-                    }
+                Matcher dmyMatcher = Pattern.compile("(\\d{1,2})[/.-](\\d{1,2})[/.-](\\d{4})").matcher(lower);
+                if (dmyMatcher.find()) {
+                    try {
+                        int d = Integer.parseInt(dmyMatcher.group(1));
+                        int m = Integer.parseInt(dmyMatcher.group(2));
+                        int y = Integer.parseInt(dmyMatcher.group(3));
+                        date = LocalDate.of(y, m, d);
+                        matchedDayNumber = d;
+                    } catch (Exception ignored) {}
                 } else {
-                    Matcher monthFirst = Pattern.compile("(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\s+(\\d{1,2})\\s*(?:st|nd|rd|th)?").matcher(lower);
-                    if (monthFirst.find()) {
-                        int month = parseMonth(monthFirst.group(1));
-                        int day = Integer.parseInt(monthFirst.group(2));
+                    // Support spaces in day numbers e.g. "19 th oct", "19th oct", "19 oct"
+                    Matcher monthMatcher = Pattern.compile("(\\d{1,2})\\s*(?:st|nd|rd|th)?\\s+(?:of\\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)").matcher(lower);
+                    if (monthMatcher.find()) {
+                        int day = Integer.parseInt(monthMatcher.group(1));
+                        int month = parseMonth(monthMatcher.group(2));
                         if (month > 0 && day > 0 && day <= 31) {
                             int year = today.getYear();
                             LocalDate candidate = LocalDate.of(year, month, day);
@@ -304,21 +323,42 @@ public class AiRecommendationService {
                             date = candidate;
                             matchedDayNumber = day;
                         }
+                    } else {
+                        Matcher monthFirst = Pattern.compile("(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\s+(\\d{1,2})\\s*(?:st|nd|rd|th)?").matcher(lower);
+                        if (monthFirst.find()) {
+                            int month = parseMonth(monthFirst.group(1));
+                            int day = Integer.parseInt(monthFirst.group(2));
+                            if (month > 0 && day > 0 && day <= 31) {
+                                int year = today.getYear();
+                                LocalDate candidate = LocalDate.of(year, month, day);
+                                if (candidate.isBefore(today.minusMonths(1))) {
+                                    candidate = candidate.plusYears(1);
+                                }
+                                date = candidate;
+                                matchedDayNumber = day;
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Capacity extraction (exclude date day number e.g. 19 in "19 th oct")
+        if (date != null && matchedDayNumber == -1) {
+            matchedDayNumber = date.getDayOfMonth();
+        }
+
+        // Capacity extraction (exclude date day number e.g. 19 in "19 th oct", and exclude years e.g. 2026)
         Integer capacity = null;
         Matcher capMatcher = Pattern.compile("(\\d+)\\+?\\s*(?:people|persons|seats|students|capacity|users)?").matcher(lower);
         while (capMatcher.find()) {
             try {
                 int val = Integer.parseInt(capMatcher.group(1));
-                if (val == matchedDayNumber) {
-                    continue; // Skip day number so it is never treated as capacity
+                if (val == matchedDayNumber || (date != null && val == date.getDayOfMonth())
+                        || val == today.getYear() || val == today.getYear() + 1 || val == today.getYear() - 1
+                        || val >= 2000) {
+                    continue; // Skip day number and year so they are never treated as capacity
                 }
-                if (val > 12 && val < 5000) { // plausible attendee count
+                if (val > 12 && val < 2000) { // plausible attendee count
                     capacity = val;
                     break;
                 }
@@ -364,7 +404,7 @@ public class AiRecommendationService {
 
         String clarifyingQuestion = null;
         if (date == null) {
-            clarifyingQuestion = "Could you please specify which date you need this resource for (e.g., today, tomorrow, or YYYY-MM-DD)?";
+            clarifyingQuestion = "Could you please specify which future date and time you need this resource for (e.g., today, tomorrow, or YYYY-MM-DD)?";
         }
 
         return new ExtractedIntent(type, date, startTime, endTime, capacity, clarifyingQuestion);
@@ -388,16 +428,23 @@ public class AiRecommendationService {
         return -1;
     }
 
-    private ExtractedIntent mergeWithPreviousIntent(ExtractedIntent current, ExtractedIntent previous) {
+    private ExtractedIntent mergeWithPreviousIntent(ExtractedIntent current, ExtractedIntent previous, LocalDate today) {
         if (previous == null) return current;
         String type = (current.resourceType() != null && !current.resourceType().isBlank())
                 ? current.resourceType()
                 : previous.resourceType();
-        LocalDate date = current.date() != null ? current.date() : previous.date();
+        LocalDate date = current.date();
+        // NEVER inherit a past date from previousIntent
+        if (date == null && previous.date() != null && !previous.date().isBefore(today)) {
+            date = previous.date();
+        }
         LocalTime start = current.startTime() != null ? current.startTime() : previous.startTime();
         LocalTime end = current.endTime() != null ? current.endTime() : previous.endTime();
         Integer cap = current.minCapacity() != null ? current.minCapacity() : previous.minCapacity();
-        String clarifying = (date == null) ? current.clarifyingQuestion() : null;
+        if (cap != null && (cap >= 2000 || cap == today.getYear() || cap == today.getYear() + 1)) {
+            cap = null;
+        }
+        String clarifying = (date == null || date.isBefore(today)) ? current.clarifyingQuestion() : null;
         return new ExtractedIntent(type, date, start, end, cap, clarifying);
     }
 
@@ -442,7 +489,7 @@ public class AiRecommendationService {
         ParsedIntentResult parsedResult = parseIntentWithEngine(request.prompt(), contextDate);
         String activeEngine = parsedResult.engine();
         ExtractedIntent rawIntent = parsedResult.intent();
-        ExtractedIntent intent = mergeWithPreviousIntent(rawIntent, request.previousIntent());
+        ExtractedIntent intent = mergeWithPreviousIntent(rawIntent, request.previousIntent(), contextDate);
 
         if (isGreeting(request.prompt())) {
             String welcomeMsg = "Hello! How can I help you with resource booking today? What type of resource are you looking for, and for which date?";
@@ -455,13 +502,18 @@ public class AiRecommendationService {
             return AiRecommendationResponse.followUp(welcomeMsg, rawIntent, suggestions);
         }
 
-        // Date is mandatory per requirement
-        if (!intent.hasDate()) {
-            String question = intent.clarifyingQuestion() != null
-                    ? intent.clarifyingQuestion()
-                    : (intent.resourceType() == null
-                        ? "Could you please specify which resource type (e.g., Lecture Hall, Lab, GPU Cluster) and date you need?"
-                        : "Please specify the date for your booking (e.g., today, tomorrow, 2026-10-15).");
+        // Date is mandatory per requirement and must not be in the past
+        if (!intent.hasDate() || intent.date().isBefore(contextDate)) {
+            String question;
+            if (intent.date() != null && intent.date().isBefore(contextDate)) {
+                question = String.format("The date %s is in the past. Please specify a valid future date for your booking (e.g., today, tomorrow, or YYYY-MM-DD).", intent.date());
+            } else {
+                question = intent.clarifyingQuestion() != null
+                        ? intent.clarifyingQuestion()
+                        : (intent.resourceType() == null
+                            ? "Could you please specify which resource type (e.g., Lecture Hall, Lab, GPU Cluster) and future date you need?"
+                            : "Please specify a valid future date for your booking (e.g., today, tomorrow, or YYYY-MM-DD).");
+            }
             List<String> dateSuggestions = new ArrayList<>();
             if (intent.resourceType() == null) {
                 dateSuggestions.addAll(List.of("Lecture Hall", "KD Lab", "GPU Cluster"));
@@ -472,7 +524,10 @@ public class AiRecommendationService {
                 aiLogger.logAgentComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
                         activeEngine, durationMs, "DATE_REQUIRED", question, java.util.Map.of());
             }
-            return AiRecommendationResponse.followUp(question, intent, dateSuggestions);
+            ExtractedIntent safeIntent = new ExtractedIntent(
+                    intent.resourceType(), null, intent.startTime(), intent.endTime(), intent.minCapacity(), question
+            );
+            return AiRecommendationResponse.followUp(question, safeIntent, dateSuggestions);
         }
 
         LocalDate targetDate = intent.date();

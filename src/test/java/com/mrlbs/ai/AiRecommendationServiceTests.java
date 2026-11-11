@@ -151,6 +151,48 @@ class AiRecommendationServiceTests {
         assertTrue(response.topRecommendation().explanation().contains("Time Shift"));
     }
 
+    @Test
+    void parseIntent_shortDateTomorrowIsNov12_parsesCorrectlyWithoutYearAsCapacity() {
+        LocalDate today = LocalDate.of(2026, 11, 11);
+        when(geminiClient.isConfigured()).thenReturn(false);
+
+        ExtractedIntent intent = service.parseIntent("tomorrow is nov 12", today);
+
+        assertTrue(intent.hasDate());
+        assertEquals(LocalDate.of(2026, 11, 12), intent.date());
+        assertNull(intent.minCapacity(), "Year or day number should never be parsed as capacity");
+    }
+
+    @Test
+    void getRecommendations_pastDate_returnsFollowUpAndDoesNotRecommend() {
+        LocalDate today = LocalDate.of(2026, 11, 12);
+        when(geminiClient.isConfigured()).thenReturn(false);
+
+        AiPromptRequest request = new AiPromptRequest("GPU on 2026-10-16", today.toString());
+        AiRecommendationResponse response = service.getRecommendations(request);
+
+        assertTrue(response.success());
+        assertNull(response.topRecommendation());
+        assertNotNull(response.followUpQuestion());
+        assertTrue(response.followUpQuestion().contains("in the past"), "Should inform user that date is in the past");
+    }
+
+    @Test
+    void getRecommendations_previousIntentPastDate_isNotInherited() {
+        LocalDate today = LocalDate.of(2026, 11, 12);
+        when(geminiClient.isConfigured()).thenReturn(false);
+
+        ExtractedIntent pastIntent = new ExtractedIntent("GPU", LocalDate.of(2026, 10, 16), LocalTime.of(10, 0), LocalTime.of(12, 0), null, null);
+        AiPromptRequest request = new AiPromptRequest("GPU", today, pastIntent);
+
+        AiRecommendationResponse response = service.getRecommendations(request);
+
+        assertTrue(response.success());
+        assertNull(response.topRecommendation());
+        assertNotNull(response.followUpQuestion());
+        assertTrue(response.followUpQuestion().contains("future date"), "Should require a valid future date");
+    }
+
     private LabResource createResource(UUID id, String name, String type, String loc, Integer cap, BookingPolicy policy) {
         LabResource res = new LabResource(
                 name, type, loc, cap, List.of("Rules"),
