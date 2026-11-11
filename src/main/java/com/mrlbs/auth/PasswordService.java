@@ -40,19 +40,31 @@ public class PasswordService {
 
     @Transactional
     public boolean resetPassword(String email, String code, String password) {
-        if (!otp.verify(email, code)) {
+        if (AdminResourceScope.isScopedAdmin(email) || !otp.verify(email, code)) {
             return false;
         }
-        Member member;
-        if (AdminResourceScope.isScopedAdmin(email)) {
-            member = members.findByEmail(email).orElseGet(() ->
-                    members.save(new Member(email, email.substring(0, email.indexOf('@')), "ADMIN")));
-            member.setRole("ADMIN");
-        } else {
-            var profile = memberService.loginOrCreateMember(email, null);
-            member = members.findById(profile.id()).orElseThrow();
-        }
+        var profile = memberService.loginOrCreateMember(email, null);
+        var member = members.findById(profile.id()).orElseThrow();
         member.replacePassword(encoder.encode(password));
         return true;
+    }
+
+    @Transactional
+    public void provisionAdmin(String email, String initialPassword) {
+        if (!AdminResourceScope.isScopedAdmin(email)) {
+            throw new IllegalArgumentException("Unknown scoped administrator");
+        }
+        if (initialPassword == null || initialPassword.isBlank()) {
+            return;
+        }
+        if (initialPassword.length() < 12 || initialPassword.length() > 128) {
+            throw new IllegalArgumentException("Initial admin passwords must contain 12 to 128 characters");
+        }
+        Member admin = members.findByEmail(email).orElseGet(() ->
+                members.save(new Member(email, email.substring(0, email.indexOf('@')), "ADMIN")));
+        admin.setRole("ADMIN");
+        if (admin.getPasswordHash() == null) {
+            admin.replacePassword(encoder.encode(initialPassword));
+        }
     }
 }

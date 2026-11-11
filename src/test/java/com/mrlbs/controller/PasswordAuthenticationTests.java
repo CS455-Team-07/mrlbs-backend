@@ -2,8 +2,6 @@ package com.mrlbs.controller;
 
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -25,7 +23,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = "MRLBS_GPUS_INITIAL_PASSWORD=test admin password")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class PasswordAuthenticationTests {
@@ -43,9 +41,9 @@ class PasswordAuthenticationTests {
                 .andExpect(status().isForbidden());
     }
 
-    @ParameterizedTest
-    @CsvSource({"password-test@iitk.ac.in, member", "gpus@iitk.ac.in, admin"})
-    void setsAndResetsPasswordThroughEmailAndRevokesSessions(String email, String role) throws Exception {
+    @Test
+    void setsAndResetsMemberPasswordThroughEmailAndRevokesSessions() throws Exception {
+        String email = "password-test@iitk.ac.in";
         var deliveredCode = new AtomicReference<String>();
         doAnswer(invocation -> {
             SimpleMailMessage mail = invocation.getArgument(0);
@@ -61,12 +59,12 @@ class PasswordAuthenticationTests {
         mvc.perform(reset(email, deliveredCode.get(), replacement)).andExpect(status().isBadRequest());
 
         var session = (MockHttpSession) mvc.perform(login(email, initial))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.role").value(role))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.role").value("member"))
                 .andReturn().getRequest().getSession(false);
         mvc.perform(get("/api/auth/me").session(session))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.email").value(email));
         mvc.perform(get("/api/auth/member-credits").session(session))
-                .andExpect(role.equals("member") ? status().isOk() : status().isForbidden());
+                .andExpect(status().isOk());
 
         requestCode(email);
         mvc.perform(reset(email, deliveredCode.get(), replacement)).andExpect(status().isNoContent());
@@ -77,6 +75,20 @@ class PasswordAuthenticationTests {
         mvc.perform(post("/api/auth/logout").session(replacementSession).with(csrf()))
                 .andExpect(status().isNoContent());
         org.assertj.core.api.Assertions.assertThat(replacementSession.isInvalid()).isTrue();
+    }
+
+    @Test
+    void provisionedAdminSignsInWithoutEmailAndCannotUsePublicRecovery() throws Exception {
+        String email = "gpus@iitk.ac.in";
+        mvc.perform(login(email, "incorrect password")).andExpect(status().isUnauthorized());
+        mvc.perform(login(email, "test admin password"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("admin"))
+                .andExpect(jsonPath("$.resourceTypeScope").value("GPU"));
+        mvc.perform(authPost("forgot-password", "{\"email\":\"%s\"}".formatted(email)))
+                .andExpect(status().isBadRequest());
+        mvc.perform(reset(email, "123456", "replacement password")).andExpect(status().isBadRequest());
+        org.mockito.Mockito.verifyNoInteractions(mailSender);
     }
 
     private void requestCode(String email) throws Exception {

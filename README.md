@@ -17,7 +17,7 @@ This repository contains the initial backend scaffold for the CS455 Software Eng
 
 The application uses a standard Maven source layout and a layered package structure under `com.mrlbs`. Web controllers expose REST endpoints, configuration is centralized, and persistence uses Spring Data JPA with Flyway migrations. The frontend is a separate React and TypeScript repository. Future AI processing is expected to use asynchronous workflows.
 
-Members and scoped administrators sign in with an IITK email and password. Use **Forgot password or first-time sign-in?** to request a six-digit email code and set a password of 12 to 128 characters. Codes expire after five minutes and allow five incorrect attempts. Setting a password revokes existing sessions for that account. Password hashes and session revocation IDs are stored on the account record. Sessions expire after 30 minutes of inactivity and use an HTTP-only cookie.
+Members and scoped administrators sign in with an IITK email and password. Members use **Forgot password or first-time sign-in?** to request a six-digit email code and set a password of 12 to 128 characters. Codes expire after five minutes and allow five incorrect attempts. Setting a password revokes existing sessions for that account. Password hashes and session revocation IDs are stored on the account record. Sessions expire after 30 minutes of inactivity and use an HTTP-only cookie.
 
 The API exposes `GET /api/health`, `GET /api/auth/me`, and `GET /api/auth/csrf`. Send the CSRF header and session cookie with `POST /api/auth/login`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, `POST /api/auth/logout`, and other write requests. Public GET endpoints include health and the resource catalog. Member data and admin actions require an authenticated session and the applicable role.
 
@@ -36,7 +36,19 @@ The API exposes `GET /api/health`, `GET /api/auth/me`, and `GET /api/auth/csrf`.
 3. Start the frontend and open `http://localhost:5173`.
 4. To use PostgreSQL, configure the connection and use the `postgres` profile.
 
-The PostgreSQL profile updates the schema on startup. `V13__add_member_password_credentials.sql` also provides the additive schema change for managed migrations. Existing accounts can set their first password through the emailed-code flow.
+The PostgreSQL profile updates the schema on startup. `V13__add_member_password_credentials.sql` also provides the additive schema change for managed migrations. Existing member accounts can set their first password through the emailed-code flow.
+
+## Admin account provisioning
+
+The backend provisions the three scoped admin accounts on startup when their initial password settings are present.
+
+| Admin username | Initial password setting |
+| --- | --- |
+| `lhc@iitk.ac.in` | `MRLBS_LHC_INITIAL_PASSWORD` |
+| `gpus@iitk.ac.in` | `MRLBS_GPUS_INITIAL_PASSWORD` |
+| `kdlab@iitk.ac.in` | `MRLBS_KDLAB_INITIAL_PASSWORD` |
+
+Set each password through the backend environment or deployment secret manager. Use a distinct password of 12 to 128 characters per account. Provisioning stores a hash and skips accounts that already have a password. The public registration and OTP flow applies to member accounts. Fictional admin usernames are reserved and do not receive OTP email.
 
 ## PostgreSQL configuration
 

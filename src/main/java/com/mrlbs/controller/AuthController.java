@@ -82,6 +82,10 @@ public class AuthController {
     public ResponseEntity<?> forgotPassword(@Valid @RequestBody EmailRequest body, HttpServletRequest request) {
         String email = normalize(body.email());
         limit("otp-send", email, request, 3, 15);
+        if (AdminResourceScope.isScopedAdmin(email)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "message", "Contact the system operator for help with this administrator account."));
+        }
         try {
             otp.generateAndSend(email);
             return ResponseEntity.noContent().build();

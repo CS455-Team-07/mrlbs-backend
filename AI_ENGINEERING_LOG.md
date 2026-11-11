@@ -744,3 +744,11 @@ Rebased, tested backend branches for PRs #32 and #33.
 - **Verification and changes** — Added member and admin authentication regression tests. Updated tests to expect API authorization errors and isolated the H2 databases used by distinct Spring test contexts. The local backend suite passed all 186 tests with the live RabbitMQ classes excluded. The backend returned health 200 and unauthorized 401 on localhost. Confirmed both credential columns in Neon and authenticated the SMTP connection without sending email.
 - **Final artifact** — Updated backend source, database migration, tests, and configuration. Backend running on port 8080 against Neon PostgreSQL.
 - **Team evaluation and decision** — Pending human review. No acceptance decision recorded.
+
+#### 2026-11-11 — Provision fictional admin accounts
+
+- **Prompt** — “yeah keep some initial passwords for them and also is there any way an admin can register”
+- **Implementation** — Added startup provisioning for the three reserved admin usernames. Each initial password comes from the process environment and is hashed in the database. Existing hashes are preserved. The public OTP endpoints are limited to member accounts.
+- **Verification** — Five focused backend tests passed, covering provisioned admin sign-in, rejection of public admin recovery, and member OTP recovery.
+- **Final artifact** — Startup provisioning code, updated regression tests, and environment setting documentation.
+- **Team evaluation and decision** — Pending human review.
