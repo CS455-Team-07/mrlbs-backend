@@ -4,6 +4,10 @@ import com.mrlbs.security.AdminResourceScope;
 import com.mrlbs.security.DemoAuthenticationFilter;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -33,7 +37,7 @@ public class DemoAdminController {
      */
     @PostMapping("/switch")
     public ResponseEntity<?> switchAdmin(
-            @RequestBody SwitchRequest body,
+            @Valid @RequestBody SwitchRequest body,
             HttpServletResponse response) {
 
         if (authEnabled) {
@@ -45,7 +49,7 @@ public class DemoAdminController {
         // Allow the three scoped admins plus the generic demo super-admin
         Set<String> allowed = AdminResourceScope.allScopedAdminEmails();
         if (!email.isEmpty() && !allowed.contains(email)) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Unknown admin email: " + email));
+            throw new IllegalArgumentException("Invalid demo admin identity");
         }
 
         Cookie cookie = new Cookie(DemoAuthenticationFilter.COOKIE_NAME, email);
@@ -70,5 +74,5 @@ public class DemoAdminController {
         return ResponseEntity.ok(admins);
     }
 
-    public record SwitchRequest(String email) {}
+    public record SwitchRequest(@NotBlank @Email @Size(max = 254) String email) {}
 }

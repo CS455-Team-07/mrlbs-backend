@@ -509,3 +509,230 @@ Pending human review.
 
 The decision and the corresponding in-app message commit atomically, so a rolled-back decision cannot appear in the member inbox.
 The merged branch passed the backend suite with the two live RabbitMQ classes excluded.
+---
+
+#### 2026-10-15 — BOOK-115 FCFS performance verification
+
+**Task / Context:**
+Review the local BOOK-115 implementation and prepare a pull request for the FCFS performance acceptance target.
+
+**Prompt:**
+The user asked to review their implementation and create a PR. Summary: add the BOOK-115 100+ concurrent request performance verification, inspect it, and submit it for review.
+
+**AI Output:**
+Reviewed the new load test, then changed its measurement to exercise the booking HTTP controller, Spring Security, validation, and persistence. Kept 120 simultaneous requests divided across 20 resources, with six distinct slots per resource. Ran the focused Maven test; all 120 requests returned successful confirmations, but local p95 latency was approximately 2.7 seconds, exceeding the 2-second target.
+
+**Student/Team Evaluation:**
+Pending human review.
+
+**Errors / Risks / Hallucinations:**
+The H2 test profile is not a production PostgreSQL benchmark, and its observed latency may vary across environments. The local run did not meet the target, so the requirement cannot be claimed as passing.
+
+**Changes Made After Evaluation:**
+Updated `src/test/java/com/mrlbs/booking/FcfsPerformanceLoadTest.java` to measure the application HTTP path, retain concurrent per-resource contention, and always shut down worker threads. Isolated the test Spring context after the class.
+
+**Final Accepted Artifact:**
+Draft BOOK-115 pull request with a repeatable application-path load test and the local performance failure recorded for review.
+
+**Decision:**
+Modified; awaiting human review.
+
+**Reason:**
+The original test only timed direct service calls and assigned each request a unique resource-slot pair. The revised test exercises the app request path and shares resources across simultaneous callers; its measured performance remains above the requirement locally.
+
+---
+
+#### 2026-10-15 — Correction to BOOK-115 performance test scope
+
+**Task / Context:**
+Re-evaluate the original service-level benchmark after the user clarified that it was intended to measure the booking service path.
+
+**Prompt:**
+The user asked whether their original implementation satisfied the requirement. The original test's intended benchmark is service-level FCFS processing, not HTTP request latency.
+
+**AI Output:**
+Restored the 10-resource, 120-request service-level benchmark, with 12 concurrent requests per resource targeting distinct time slots. It directly calls `BookingService.submit`, exercising identity/time validation, quota checks, conflict detection, credit deduction, and persistence. The measured elapsed time excludes HTTP controller and network overhead. Added context cleanup and guaranteed executor shutdown. Updated PR #32's description to state this scope and its local result.
+
+**Student/Team Evaluation:**
+Pending human review.
+
+**Errors / Risks / Hallucinations:**
+The earlier 2.7-second p95 result was for the stricter HTTP-dispatch variant, not the user's original service-level benchmark. The H2 test profile is not a production database or network benchmark; latency can vary by environment. This benchmark does not validate HTTP controller dispatch or client-visible latency.
+
+**Changes Made After Evaluation:**
+Reverted the HTTP/MockMvc timing variant in `src/test/java/com/mrlbs/booking/FcfsPerformanceLoadTest.java`; retained `@DirtiesContext` and executor shutdown. Re-ran the focused test successfully: 120/120 requests succeeded and were confirmed; observed p95 was 213 ms.
+
+**Final Accepted Artifact:**
+Updated service-path load test and corrected description on draft pull request #32.
+
+**Decision:**
+Modified; awaiting human review.
+
+**Reason:**
+The original test meets the defined 120-request, sub-two-second service-path criterion in the local H2 run. It should be described as a service-layer benchmark because it excludes HTTP and network overhead. The earlier log entry remains as a record of the stricter variant and is corrected here rather than silently changed.
+
+#### 2026-10-15 — BOOK-120 API input validation and safe error handling
+
+**Task / Context:**
+Implement BOOK-120: strict validation for API inputs and error responses that do not disclose stack traces, database information, or implementation details.
+
+**Prompt:**
+"now implement book 120"
+
+**AI Output:**
+Reviewed the Jira acceptance criteria and the backend API surface. Added validation to booking, resource, resource-rule, authentication, demo-admin, and AI request models; validated resource-search query parameters and time ranges; and normalized malformed JSON, invalid bindings, validation failures, data-integrity failures, access failures, and unexpected exceptions into safe `ProblemDetail` responses. Changed AI context dates to `LocalDate` so invalid calendar dates are rejected during JSON binding instead of being ignored. Configured Spring's default error endpoint to omit messages, binding details, and stack traces.
+
+**Student/Team Evaluation:**
+Pending human review.
+
+**Errors / Risks / Hallucinations:**
+The backend now rejects an explicitly supplied blank or invalid AI context date; clients should omit the optional field when no date is known. Generic error responses deliberately provide less workflow detail than the prior raw exception messages. Server logs retain full exception detail for diagnosis and are not sent to clients.
+
+**Changes Made After Evaluation:**
+Added `InputValidationIntegrationTests` covering invalid login input, malformed JSON, invalid AI calendar dates, invalid resource query/path values, and invalid booking time ranges. Ran `./mvnw -Dtest=InputValidationIntegrationTests,AiRecommendationServiceTests test` successfully (10 tests) and reran impacted controller suites successfully (`AiControllerTests`, `BookingControllerRbacTests`, and `ResourceControllerTests`: 11 tests).
+
+**Final Accepted Artifact:**
+BOOK-120 implementation on local branch `feature/BOOK-120`, including safe API error handling, strict request validation, and focused integration coverage.
+
+**Decision:**
+Modified; awaiting human review.
+
+**Reason:**
+The implementation meets the ticket's validation and no-leak acceptance criteria in the tested API paths while preserving the existing endpoint shapes for valid requests.
+
+**Follow-up verification:**
+After standardizing the remaining authentication and demo-admin error paths, reran `./mvnw -Dtest=InputValidationIntegrationTests test` successfully (6 tests).
+
+---
+
+#### 2026-11-06 — Rebase BOOK-115 and BOOK-120
+
+**Task / Context**
+
+Update backend PRs #32 and #33 while preserving their stack. GitHub already had BOOK-115 on the latest `main`, and BOOK-120 still contained the older BOOK-115 commits.
+
+**Prompt**
+
+The user requested a rebase of the branches for backend PRs #33 (BOOK-120) and #32 (BOOK-115).
+
+**AI Output**
+
+Synced the local BOOK-115 branch with its rebased remote tip and replayed the BOOK-120 security commit onto BOOK-115. Resolved conflicts in the AI controller and recommendation service by retaining request correlation, logging, and rate limiting alongside typed date validation.
+
+**Student/Team Evaluation**
+
+Pending human review.
+
+**Errors / Risks / Hallucinations**
+
+The first build found an upstream observability test fixture that still passed a string date. The first combined test run also found that FCFS context cleanup dropped the H2 schema shared by the controller tests.
+
+**Changes Made After Evaluation**
+
+Updated the observability fixture to pass a `LocalDate` on BOOK-120 and assigned the FCFS load test its own in-memory database on BOOK-115. All 32 focused tests then passed together. The local service-path benchmark completed all 120 requests with a p95 of 449 ms.
+
+**Final Artifact**
+
+Updated BOOK-115 and BOOK-120 branches for PRs #32 and #33.
+
+**Decision**
+
+Pending human review.
+
+**Reason**
+
+BOOK-115 stays based on `main`, and BOOK-120 contains only its security work and the related rebase adjustments relative to BOOK-115.
+
+#### 2026-11-11 -- Rebase BOOK-115 on current main
+
+**Task / Context**
+
+Update backend PR #32 against the latest backend main after PR #35 was merged, while preserving the stacked relationship with PR #33. Fetch the latest frontend main for the requested project state.
+
+**Prompt**
+
+The user asked to fetch the latest frontend and backend versions and resolve merge conflicts for PR #32. The user added that PR #33, the BOOK-120 strict validation and safe error response PR, is stacked with this PR.
+
+**AI Output**
+
+Fetched backend main at fdbc725, which includes the PR #35 merge, and frontend main at 91768d1. Merged backend main into feature/BOOK-115. The only conflict was the shared AI engineering log. Preserved the BOOK-115 history and the later main entries. The PR #32 regression run passed 172 tests, including the FCFS performance test, with the two live RabbitMQ test classes excluded.
+
+**Student / Team Evaluation**
+
+Pending human review.
+
+**Errors / Risks / Hallucinations**
+
+The automated test run does not include the two live RabbitMQ classes. RabbitMQ was unavailable locally during an integration test, which followed the configured human-review fallback. The FCFS test uses the test profile and H2, so it is a service-path test rather than a production database or network benchmark.
+
+**Changes Made After Evaluation**
+
+Resolved the AI engineering log conflict by retaining both branch histories. Prepared the refreshed BOOK-115 branch as the base for stacked PR #33.
+
+**Final Artifact / Output**
+
+Updated backend feature/BOOK-115 branch for PR #32, with current backend main and the latest frontend main reference checked.
+
+**Decision**
+
+Pending human review.
+
+**Reason**
+
+The merged backend regression suite passed 172 tests, including the FCFS performance test.
+
+#### 2026-11-11 — Refresh BOOK-115 and BOOK-120 stack after main merge
+
+**Task / Context**
+
+Refresh the backend PR stack after PR #35 was merged into main. PR #33 (BOOK-120) is based on PR #32 (BOOK-115).
+
+**Prompt**
+
+The user asked to update the latest frontend and backend, resolve conflicts in PR #32, and clarified that PR #33 is stacked on it.
+
+**AI Output**
+
+Updated feature/BOOK-115 with current backend main, resolved the engineering log conflict while retaining both branches’ history, and pushed the refreshed branch. Rebased feature/BOOK-120 onto the updated feature/BOOK-115. Resolved the authentication conflict by retaining BOOK-120 request validation and the generic OTP delivery failure response from main.
+
+**Student/Team Evaluation**
+
+Pending human review.
+
+**Errors / Risks / Hallucinations**
+
+The feature/BOOK-120 history was rewritten to preserve the PR stack on the updated BOOK-115 base. The frontend main ref was refreshed for comparison; no frontend files were changed.
+
+**Changes Made After Evaluation**
+
+The first full regression run found that strict validation had removed the established generic SMTP failure message from the request-code endpoint. Restored the safe, generic response for both OTP entry points and logged provider failures server-side without returning exception details. The full offline backend suite then passed: 178 tests, with 0 failures or errors. The FCFS load test completed all 120 requests successfully (p95 290 ms). The two live RabbitMQ-dependent classes were excluded because no local broker was available.
+
+**Final Artifact**
+
+Updated BOOK-115 and BOOK-120 branches for PRs #32 and #33.
+
+**Decision**
+
+Pending human review.
+
+**Reason**
+
+The BOOK-120 validation changes now build on the refreshed BOOK-115 base and retain the sanitized OTP delivery failure handling.
+
+#### 2026-11-11 — Rebase BOOK-115 and BOOK-120 after BOOK-96 merge
+
+**Task / Context**
+
+Refresh the stacked BOOK-115 and BOOK-120 pull requests after BOOK-96 was merged into backend `main`.
+
+**AI Output**
+
+Rebased BOOK-115 onto the new `main`, then replayed BOOK-120 onto that refreshed base. Resolved the engineering-log conflicts without duplicating historical entries. Restored the rejection-reason request limit to 1,000 characters, matching the existing database column and booking workflow, and updated the approval-expiry unit test to stub the intentionally row-locked repository lookup.
+
+**Verification**
+
+The full offline backend suite passed with 183 tests, 0 failures, and 0 errors. The live RabbitMQ-dependent test classes were excluded because no local broker was available.
+
+**Final Artifact**
+
+Rebased, tested backend branches for PRs #32 and #33.

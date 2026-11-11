@@ -1,5 +1,7 @@
 package com.mrlbs.resource;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -18,11 +20,11 @@ public record ResourceRequest(
         @DecimalMin(value = "0.01") BigDecimal minimumDurationHours,
         @DecimalMin(value = "0.00") BigDecimal maximumContentionMultiplier,
         @NotEmpty List<@NotBlank @Size(max = 1000) String> rules,
-        BookingRule bookingRule,
-        Integer minDurationMinutes,
-        Integer maxDurationMinutes,
-        Integer bufferTimeMinutes,
-        Integer maxBookingsPerMember,
+        @Valid BookingRule bookingRule,
+        @Positive Integer minDurationMinutes,
+        @Positive Integer maxDurationMinutes,
+        @DecimalMin("0") Integer bufferTimeMinutes,
+        @Positive Integer maxBookingsPerMember,
         Boolean approvalRequired) {
 
     public ResourceRequest(
@@ -36,6 +38,12 @@ public record ResourceRequest(
             List<String> rules) {
         this(name, type, location, capacity, baseRate, minimumDurationHours, maximumContentionMultiplier, rules,
                 null, null, null, null, null, null);
+    }
+
+    @AssertTrue(message = "minDurationMinutes must not exceed maxDurationMinutes")
+    public boolean isDurationRangeValid() {
+        return minDurationMinutes == null || maxDurationMinutes == null
+                || minDurationMinutes <= maxDurationMinutes;
     }
 }
 

@@ -77,7 +77,7 @@ public class ResourceController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<LabResource> updateResource(
             @PathVariable UUID resourceId,
-            @RequestBody ResourceUpdateRequest request,
+            @Valid @RequestBody ResourceUpdateRequest request,
             @AuthenticationPrincipal OidcUser user) {
         LabResource existing = resourceService.getResource(resourceId);
         validateScopeForType(user, existing.getType());

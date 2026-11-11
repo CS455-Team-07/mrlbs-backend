@@ -8,12 +8,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDate;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ai")
+@Validated
 public class AiController {
 
     private final AiRecommendationService recommendationService;
@@ -46,7 +49,7 @@ public class AiController {
     @PostMapping("/parse-intent")
     public ResponseEntity<?> parseIntent(
             @Valid @RequestBody AiPromptRequest request,
-            @RequestParam(required = false) String contextDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate contextDate,
             java.security.Principal principal,
             jakarta.servlet.http.HttpServletRequest httpRequest) {
         String correlationId = resolveCorrelationId(httpRequest);
@@ -61,9 +64,7 @@ public class AiController {
                         .body(Map.of("error", "Rate limit exceeded. Please wait a moment before sending more AI requests."));
             }
 
-            LocalDate refDate = (contextDate != null && !contextDate.isBlank())
-                    ? LocalDate.parse(contextDate)
-                    : LocalDate.now();
+            LocalDate refDate = contextDate == null ? LocalDate.now() : contextDate;
             return ResponseEntity.ok()
                     .header("X-Correlation-ID", correlationId)
                     .body(recommendationService.parseIntent(request.prompt(), refDate));

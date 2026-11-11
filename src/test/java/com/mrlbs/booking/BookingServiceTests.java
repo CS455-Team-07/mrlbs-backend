@@ -821,7 +821,7 @@ class BookingServiceTests {
         pending.setId(bookingId);
         pending.setMemberId(memberId);
 
-        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(pending));
+        when(bookingRepository.findByIdForUpdate(bookingId)).thenReturn(Optional.of(pending));
         when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
 
         // When admin attempts to approve within 15 minutes of start time

@@ -43,6 +43,12 @@ spring:
       mail.smtp.auth: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH:true}
       mail.smtp.starttls.enable: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE:true}
 
+server:
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+
 management:
   endpoints:
     web:
