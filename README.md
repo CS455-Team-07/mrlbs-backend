@@ -17,7 +17,7 @@ This repository contains the initial backend scaffold for the CS455 Software Eng
 
 The application uses a standard Maven source layout and a layered package structure under `com.mrlbs`. Web controllers expose REST endpoints, configuration is centralized, and persistence uses Spring Data JPA with Flyway migrations. The frontend is a separate React and TypeScript repository. Future AI processing is expected to use asynchronous workflows.
 
-Authentication is disabled by default for the current project demo. The backend supplies a synthetic Demo Admin principal so the website and its API can be used without Google credentials. Before deploying publicly, set `AUTH_ENABLED=true`, configure a Google OAuth client, and use an institutional Google Workspace account. With authentication enabled, access requires a verified Google identity whose signed hosted-domain (`hd`) claim matches the configured institutional domain (`iitk.ac.in` by default).
+The backend requires a verified institutional mailbox or Google Workspace session by default. To use the local demo, select the `dev` profile and set `AUTH_ENABLED=false`. The demo listener is bound to loopback. See [production security configuration](ops/security-deployment.md) for HTTPS, database roles, and rate limits.
 
 The API exposes `GET /api/health`, `GET /api/auth/me`, `GET /api/auth/csrf`, and `POST /api/resources`. Business API endpoints require authentication except health and CSRF-token retrieval. The OAuth protocol endpoints are public so Google can complete the redirect flow. Actuator health is also exposed at `/actuator/health`. Resource onboarding records a name, type, location, optional positive capacity, and at least one booking rule. The resource and its ordered rules are stored in PostgreSQL through JPA and Flyway.
 
@@ -34,7 +34,7 @@ The API exposes `GET /api/health`, `GET /api/auth/me`, `GET /api/auth/csrf`, and
 1. No database or Google credentials are needed for the default demo. The development profile uses an in-memory H2 database and a demo administrator identity.
 2. From this directory, run `./mvnw spring-boot:run` (macOS/Linux) or `mvnw.cmd spring-boot:run` (Windows).
 3. Start the frontend and open `http://localhost:5173`.
-4. To use PostgreSQL instead, set the database environment variables below. To restore Google authentication, set `AUTH_ENABLED=true`, configure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register `http://localhost:8080/login/oauth2/code/google` as an authorized redirect URI.
+4. To use PostgreSQL, follow the [production security configuration](ops/security-deployment.md). To test Google sign-in locally, configure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` and register `http://localhost:8080/login/oauth2/code/google` as an authorized redirect URI.
 
 The development profile is active by default. It uses H2 with Hibernate schema updates for local demo data; the in-memory database resets when the backend stops. PostgreSQL deployments use Flyway migrations from `src/main/resources/db/migration`.
 
@@ -52,7 +52,7 @@ The local defaults expect PostgreSQL on `localhost:5432`, database `mrlbs`, and 
 | `DB_USERNAME` | `mrlbs` | Database username |
 | `DB_PASSWORD` | empty | Database password |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Comma-separated allowed frontend origins for `/api/**` |
-| `AUTH_ENABLED` | `false` | Enable Google OIDC authentication instead of the demo identity |
+| `AUTH_ENABLED` | `true` | Set to `false` only to opt into the loopback demo under the `dev` profile |
 | `GOOGLE_CLIENT_ID` | not required when auth is disabled | Client ID for the Google OAuth 2.0 Web application |
 | `GOOGLE_CLIENT_SECRET` | not required when auth is disabled | Client secret for the Google OAuth 2.0 Web application |
 | `INSTITUTIONAL_DOMAIN` | `iitk.ac.in` | Required Google Workspace hosted domain |
@@ -63,7 +63,7 @@ The local defaults expect PostgreSQL on `localhost:5432`, database `mrlbs`, and 
 | `GEMINI_MODEL` | `gemini-2.0-flash` | Gemini model name for review evaluation |
 | `TELEMETRY_SERVICE_BASE_URL` | `http://localhost:8085` | Base URL of the standalone hardware Resource Telemetry Service |
 
-The demo identity has administrator access and is suitable only for a controlled project demo. Do not expose the default no-auth configuration publicly. For production, set `AUTH_ENABLED=true`, register the HTTPS backend callback URI with Google, and configure OAuth credentials through the deployment secret manager. The Google authorization request includes the configured `hd` value to guide account selection, while the backend validates the signed ID token claims.
+For Google sign-in in production, register the HTTPS backend callback URI and supply the OAuth credentials through deployment secrets. The Google authorization request uses the configured `hd` to guide account selection, and the backend validates the signed ID token claims.
 
 ## Resource onboarding
 
@@ -99,17 +99,20 @@ A convenience script [`runpostgres.ps1`](runpostgres.ps1) is provided for runnin
 
 > **Note:** The `postgres.local.env` file is git-ignored for security. Place your database connection string and credentials in `postgres.local.env` in this directory or the workspace root.
 
+The PostgreSQL profile requires the HTTPS settings, verified PostgreSQL TLS, and restricted runtime login described in the [deployment guide](ops/security-deployment.md).
+
 ### Option B: Running with In-Memory H2 (Quick Local Demo)
 
 To run the backend with an ephemeral in-memory H2 database (no external database required):
 
 - **Windows:**
   ```powershell
-  .\mvnw.cmd spring-boot:run
+    $env:AUTH_ENABLED = 'false'
+    .\mvnw.cmd spring-boot:run
   ```
 - **macOS / Linux:**
   ```bash
-  ./mvnw spring-boot:run
+    AUTH_ENABLED=false ./mvnw spring-boot:run
   ```
 
 ### Building the Executable JAR

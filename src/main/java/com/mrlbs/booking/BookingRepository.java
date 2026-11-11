@@ -15,6 +15,7 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.resource WHERE b.memberId = :memberId ORDER BY b.startTime DESC")
     List<Booking> findByMemberIdOrderByStartTimeDesc(@Param("memberId") UUID memberId);
 
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "resource")
     List<Booking> findByStatusOrderByStartTimeAsc(BookingStatus status);
 
     boolean existsByIdAndResource_TypeIgnoreCase(UUID id, String type);

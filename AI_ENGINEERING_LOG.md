@@ -403,3 +403,41 @@ Pending human review.
 **Reason**
 
 The report ties each production fix to a baseline failure or source inspection and provides reproducible commands for local verification.
+
+#### 2026-11-06 — BOOK-117, BOOK-118 and BOOK-119
+
+**Task / Context**
+
+Protect booking and audit access, secure production data transport and database access, and limit and log authentication and booking creation traffic.
+
+**Prompt**
+
+The user supplied the three Jira tickets and asked to implement them, run the app, and verify that existing functionality still works.
+
+**AI Output**
+
+Found that the demo identity flow could trust an arbitrary email or cookie. Restricted it to the opt-in loopback profile. Required verified sessions, applied member and admin scope checks, and added request audit logging and rate limits. Added an HTTPS-only production profile check and database owner and runtime role separation.
+
+**Student / Team Evaluation**
+
+Pending human review.
+
+**Errors / Risks / Hallucinations**
+
+The live PostgreSQL schema check found an older confidence-score column type that differed from Hibernate's mapping. Local testing used a STARTTLS mailbox and excluded live Google Workspace, RabbitMQ, and hosted infrastructure.
+
+**Changes Made After Evaluation**
+
+Added a database-owner migration for the confidence score, unified frontend HTTPS API configuration, and verified real browser and API workflows. The backend regression run passed 159 tests plus two focused security tests. Live evidence and deployment requirements are in `ops/security-deployment.md`.
+
+**Final Artifact / Output**
+
+Backend security changes, database provisioning scripts, regression tests, and the companion frontend branch.
+
+**Decision**
+
+Pending human review.
+
+**Reason**
+
+Verified identities govern booking access and quotas, and the production runtime validates the transport and database role before accepting application traffic.

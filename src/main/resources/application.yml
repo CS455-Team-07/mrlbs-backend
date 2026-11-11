@@ -51,7 +51,7 @@ management:
 
 mrlbs:
   auth:
-    enabled: ${AUTH_ENABLED:false}
+    enabled: ${AUTH_ENABLED:true}
     institutional-domain: ${INSTITUTIONAL_DOMAIN:iitk.ac.in}
     dev-allow-any-google-domain: ${DEV_ALLOW_ANY_GOOGLE_DOMAIN:false}
     frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:5173}

@@ -458,12 +458,11 @@ public class WaitlistOfferService {
     @Transactional
     public void markNotificationRead(String memberEmail, UUID notificationId) {
         UUID memberId = resolveMemberId(memberEmail);
-        notificationRepository.findById(notificationId).ifPresent(n -> {
-            if (n.getMemberId().equals(memberId)) {
-                n.setRead(true);
-                notificationRepository.save(n);
-            }
-        });
+        var notification = notificationRepository.findById(notificationId)
+                .filter(item -> item.getMemberId().equals(memberId))
+                .orElseThrow(() -> new AccessDeniedException("This notification is unavailable."));
+        notification.setRead(true);
+        notificationRepository.save(notification);
     }
 
     private boolean isValidDuration(LabResource resource, LocalDateTime start, LocalDateTime end) {

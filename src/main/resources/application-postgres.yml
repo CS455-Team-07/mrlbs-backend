@@ -7,6 +7,24 @@ spring:
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
   flyway:
-    enabled: true
+    enabled: false
+  mail:
+    properties:
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
+      mail.smtp.ssl.checkserveridentity: true
+
+server:
+  forward-headers-strategy: none
+  servlet:
+    session:
+      cookie:
+        secure: true
+        http-only: true
+        same-site: ${SESSION_COOKIE_SAME_SITE:lax}
+
+mrlbs:
+  security:
+    require-tls: true
