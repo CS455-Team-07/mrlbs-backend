@@ -39,7 +39,7 @@ public class AiController {
         return ResponseEntity.ok(Map.of(
                 "enabled", true,
                 "geminiConfigured", geminiClient.isConfigured(),
-                "model", geminiClient.getModelName()
+                "model", geminiClient.isConfigured() ? geminiClient.getModelName() : "local-deterministic-engine"
         ));
     }
 

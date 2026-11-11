@@ -57,19 +57,31 @@ public class AiRecommendationService {
         this.aiLogger = aiLogger;
     }
 
+    public record ParsedIntentResult(ExtractedIntent intent, String engine) {}
+
     /**
      * Parses the member's natural-language prompt into structured search criteria.
      * Enforces date as mandatory.
      */
     public ExtractedIntent parseIntent(String prompt, LocalDate referenceDate) {
+        return parseIntentWithEngine(prompt, referenceDate).intent();
+    }
+
+    public ParsedIntentResult parseIntentWithEngine(String prompt, LocalDate referenceDate) {
         if (prompt == null || prompt.isBlank()) {
-            return new ExtractedIntent(null, null, null, null, null, "Please enter what type of resource you are looking for.");
+            return new ParsedIntentResult(
+                    new ExtractedIntent(null, null, null, null, null, "Please enter what type of resource you are looking for."),
+                    "local-deterministic-validation"
+            );
         }
 
         if (isGreeting(prompt)) {
-            return new ExtractedIntent(
-                    null, null, null, null, null,
-                    "Hello! How can I help you with resource booking today? What type of resource are you looking for (e.g. Lecture Hall, Lab, GPU Cluster), and for which date?"
+            return new ParsedIntentResult(
+                    new ExtractedIntent(
+                            null, null, null, null, null,
+                            "Hello! How can I help you with resource booking today? What type of resource are you looking for (e.g. Lecture Hall, Lab, GPU Cluster), and for which date?"
+                    ),
+                    "local-deterministic-greeting"
             );
         }
 
@@ -78,19 +90,20 @@ public class AiRecommendationService {
         // 1. Instant local fast path: if prompt has clear unambiguous criteria, return in < 1ms
         ExtractedIntent localIntent = parseIntentFallback(prompt, today);
         if (isHighConfidence(localIntent, prompt)) {
-            return localIntent;
+            return new ParsedIntentResult(localIntent, "local-fast-path-heuristic");
         }
 
         // 2. Natural language & complex conversational parsing via Gemini
         if (geminiClient.isConfigured()) {
             Optional<ExtractedIntent> aiIntent = parseIntentWithGemini(prompt, today);
             if (aiIntent.isPresent()) {
-                return aiIntent.get();
+                return new ParsedIntentResult(aiIntent.get(), geminiClient.getModelName());
             }
+            return new ParsedIntentResult(localIntent, "deterministic-fallback-after-error");
         }
 
-        // 3. Fallback
-        return localIntent;
+        // 3. Fallback when Gemini is unconfigured
+        return new ParsedIntentResult(localIntent, "local-deterministic-fallback (no api key)");
     }
 
     private boolean isGreeting(String prompt) {
@@ -402,17 +415,33 @@ public class AiRecommendationService {
 
         LocalDate contextDate = request.contextDate() == null ? LocalDate.now() : request.contextDate();
 
+        String startEngine;
+        if (isGreeting(request.prompt())) {
+            startEngine = "local-deterministic-greeting";
+        } else if (!geminiClient.isConfigured()) {
+            startEngine = "local-deterministic-fallback (no api key)";
+        } else {
+            ExtractedIntent quickIntent = parseIntentFallback(request.prompt(), contextDate);
+            if (isHighConfidence(quickIntent, request.prompt())) {
+                startEngine = "local-fast-path-heuristic";
+            } else {
+                startEngine = geminiClient.getModelName();
+            }
+        }
+
         long startNs = System.nanoTime();
         if (aiLogger != null) {
             aiLogger.logAgentStart(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
-                    geminiClient.getModelName(), java.util.Map.of(
+                    startEngine, java.util.Map.of(
                             "promptLength", request.prompt() != null ? request.prompt().length() : 0,
                             "hasPreviousIntent", request.previousIntent() != null,
                             "contextDate", String.valueOf(contextDate)
                     ));
         }
 
-        ExtractedIntent rawIntent = parseIntent(request.prompt(), contextDate);
+        ParsedIntentResult parsedResult = parseIntentWithEngine(request.prompt(), contextDate);
+        String activeEngine = parsedResult.engine();
+        ExtractedIntent rawIntent = parsedResult.intent();
         ExtractedIntent intent = mergeWithPreviousIntent(rawIntent, request.previousIntent());
 
         if (isGreeting(request.prompt())) {
@@ -421,7 +450,7 @@ public class AiRecommendationService {
             long durationMs = (System.nanoTime() - startNs) / 1_000_000;
             if (aiLogger != null) {
                 aiLogger.logAgentComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
-                        geminiClient.getModelName(), durationMs, "GREETING", welcomeMsg, java.util.Map.of());
+                        activeEngine, durationMs, "GREETING", welcomeMsg, java.util.Map.of());
             }
             return AiRecommendationResponse.followUp(welcomeMsg, rawIntent, suggestions);
         }
@@ -441,7 +470,7 @@ public class AiRecommendationService {
             long durationMs = (System.nanoTime() - startNs) / 1_000_000;
             if (aiLogger != null) {
                 aiLogger.logAgentComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
-                        geminiClient.getModelName(), durationMs, "DATE_REQUIRED", question, java.util.Map.of());
+                        activeEngine, durationMs, "DATE_REQUIRED", question, java.util.Map.of());
             }
             return AiRecommendationResponse.followUp(question, intent, dateSuggestions);
         }
@@ -472,7 +501,7 @@ public class AiRecommendationService {
                         com.mrlbs.ai.observability.AiAgentLogger.TOOL_CATALOG_SEARCH, (System.nanoTime() - catStartNs) / 1_000_000,
                         "EMPTY_CATALOG", java.util.Map.of("activeCount", 0));
                 aiLogger.logAgentComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
-                        geminiClient.getModelName(), durationMs, "NO_CATALOG_RESOURCES", "No active lab resources", java.util.Map.of());
+                        activeEngine, durationMs, "NO_CATALOG_RESOURCES", "No active lab resources", java.util.Map.of());
             }
             return AiRecommendationResponse.results(
                     "No active lab resources are currently registered in the institutional catalog.",
@@ -566,7 +595,7 @@ public class AiRecommendationService {
         long totalDurationMs = (System.nanoTime() - startNs) / 1_000_000;
         if (aiLogger != null) {
             aiLogger.logAgentComplete(com.mrlbs.ai.observability.AiAgentLogger.AGENT_RECOMMENDATION, correlationId,
-                    geminiClient.getModelName(), totalDurationMs, top.matchType(), summary,
+                    activeEngine, totalDurationMs, top.matchType(), summary,
                     java.util.Map.of("topResource", top.name(), "topResourceId", top.resourceId(), "alternativesCount", alternatives.size()));
         }
 

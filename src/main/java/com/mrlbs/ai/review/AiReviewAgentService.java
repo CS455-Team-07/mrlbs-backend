@@ -111,8 +111,9 @@ public class AiReviewAgentService {
                     inputMeta.put("priorBookingsCompleted", profile.priorBookingsCompleted());
                     inputMeta.put("historyRecordCount", profile.pastBookingTelemetryRecords() != null ? profile.pastBookingTelemetryRecords().size() : 0);
                 }
+                String startModel = geminiClient.isConfigured() ? geminiClient.getModelName() : "RULE_BASED_FALLBACK";
                 aiLogger.logAgentStart(com.mrlbs.ai.observability.AiAgentLogger.AGENT_REVIEW, correlationId,
-                        geminiClient.getModelName(), inputMeta);
+                        startModel, inputMeta);
             } catch (Exception ignored) {}
         }
 
