@@ -52,8 +52,8 @@ server:
       timeout: 30m
       cookie:
         http-only: true
-        secure: ${SESSION_COOKIE_SECURE:false}
-        same-site: ${SESSION_COOKIE_SAME_SITE:lax}
+        secure: ${SESSION_COOKIE_SECURE:true}
+        same-site: ${SESSION_COOKIE_SAME_SITE:none}
   error:
     include-message: never
     include-binding-errors: never
