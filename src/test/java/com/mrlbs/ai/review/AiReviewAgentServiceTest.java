@@ -145,6 +145,25 @@ class AiReviewAgentServiceTest {
     }
 
     @Test
+    void testEvaluateBooking_GeminiUnconfigured_ZeroCompletedBookings_NeedsHumanReview75Percent() {
+        UUID bookingId = UUID.randomUUID();
+        BookingReviewEvent event = createEvent(bookingId);
+        // Profile with 0 completed bookings
+        RequesterHistoryProfile profile = createProfile(event.memberId(), 0, 0, null, "UNAVAILABLE");
+
+        when(geminiClient.isConfigured()).thenReturn(false);
+
+        AiReviewAgentService.ReviewEvaluationResult result = agentService.evaluateBooking(event, profile);
+
+        assertNotNull(result);
+        assertEquals(AiReviewRecommendation.NEEDS_HUMAN_REVIEW, result.recommendation());
+        assertEquals(0.75, result.confidenceScore());
+        assertEquals("RULE_BASED_FALLBACK", result.modelName());
+        assertEquals("Requester has no prior completed reservations on this resource to evaluate historical usage patterns. Admin review advised.", result.rationale());
+        assertTrue(result.supportingEvidence().contains("Prior bookings total: 0 (Completed: 0, Cancelled: 0, Rejected: 0, Pending: 0)"));
+    }
+
+    @Test
     void testPromptContainsBookingLevelMeasurementsAndTimestamps() {
         UUID bookingId = UUID.randomUUID();
         BookingReviewEvent event = createEvent(bookingId);
