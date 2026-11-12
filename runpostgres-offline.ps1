@@ -86,4 +86,4 @@ Write-Host "[+] Connecting to PostgreSQL (Neon cloud) in AI OFFLINE mode on port
 Write-Host "[*] Active profile: postgres (Gemini Offline)" -ForegroundColor DarkGray
 Write-Host "[*] Press Ctrl+C to stop the server.`n" -ForegroundColor DarkGray
 
-java -Dmrlbs.ai.gemini.api-key="" -Dgemini.api-key="" -jar $jarPath --spring.profiles.active=postgres --mrlbs.ai.gemini.api-key="" $args
+java -jar $jarPath --spring.profiles.active=postgres "--mrlbs.ai.gemini.api-key=" $args
