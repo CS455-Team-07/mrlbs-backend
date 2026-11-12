@@ -50,7 +50,7 @@ public class SecurityConfig {
                         .logoutSuccessHandler((request, response, authentication) -> response.setStatus(204)))
                 .addFilterBefore(new PasswordSessionFilter(members), AnonymousAuthenticationFilter.class)
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/error", "/api/health", "/actuator/health", "/api/auth/csrf").permitAll()
+                        .requestMatchers("/error", "/api/health", "/actuator/health", "/actuator/health/**", "/actuator/info", "/api/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/forgot-password",
                                 "/api/auth/reset-password").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/resources", "/api/resources/**").permitAll()

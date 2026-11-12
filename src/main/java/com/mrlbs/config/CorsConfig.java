@@ -22,7 +22,9 @@ public class CorsConfig implements WebMvcConfigurer {
         List<String> patterns = new ArrayList<>(List.of(
                 "http://localhost:*",
                 "http://127.0.0.1:*",
-                "http://[::1]:*"
+                "http://[::1]:*",
+                "https://*.onrender.com",
+                "https://*.vercel.app"
         ));
         if (allowedOrigins != null) {
             for (String origin : allowedOrigins) {
