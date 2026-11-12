@@ -85,8 +85,8 @@ public class BookingAiReviewConsumer {
         try {
             // 1. Idempotency Guard: Safely handle duplicate deliveries (e.g. publisher crash before outbox status update)
             Optional<BookingAiReview> existingReviewOpt = reviewRepository.findByBookingId(event.bookingId());
-            if (existingReviewOpt.isPresent() && existingReviewOpt.get().getStatus() == AiReviewStatus.COMPLETED) {
-                log.info("Duplicate review event for already COMPLETED booking {}. Absorbing duplicate and acknowledging.",
+            if (existingReviewOpt.isPresent() && (existingReviewOpt.get().getStatus() == AiReviewStatus.COMPLETED || existingReviewOpt.get().getStatus() == AiReviewStatus.FALLBACK_HUMAN_ONLY)) {
+                log.info("Duplicate review event for already evaluated booking {}. Absorbing duplicate and acknowledging.",
                         event.bookingId());
                 channel.basicAck(deliveryTag, false);
                 return;
@@ -110,9 +110,13 @@ public class BookingAiReviewConsumer {
                         java.util.Map.of("bookingId", event.bookingId(), "recommendation", result.recommendation().name()));
             }
 
+            AiReviewStatus reviewStatus = "RULE_BASED_FALLBACK".equals(result.modelName())
+                    ? AiReviewStatus.FALLBACK_HUMAN_ONLY
+                    : AiReviewStatus.COMPLETED;
+
             BookingAiReview review = reviewRepository.findByBookingId(event.bookingId())
-                    .orElseGet(() -> new BookingAiReview(event.bookingId(), AiReviewStatus.COMPLETED));
-            review.setStatus(AiReviewStatus.COMPLETED);
+                    .orElseGet(() -> new BookingAiReview(event.bookingId(), reviewStatus));
+            review.setStatus(reviewStatus);
             review.setRecommendation(result.recommendation());
             review.setConfidenceScore(result.confidenceScore());
             review.setRationale(result.rationale());

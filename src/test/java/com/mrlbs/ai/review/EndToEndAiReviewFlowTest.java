@@ -314,17 +314,19 @@ class EndToEndAiReviewFlowTest {
         // Execute consumer message processing in offline mode
         consumer.processBookingReview(outboxEvent.getPayload(), channel, 202L);
 
-        // 5. Verify review record was evaluated by RULE_BASED_FALLBACK
+        // 5. Verify review record was evaluated by RULE_BASED_FALLBACK and marked FALLBACK_HUMAN_ONLY
         BookingAiReview savedReview = reviewRepository.findByBookingId(booking.getId()).orElseThrow();
         assertEquals("RULE_BASED_FALLBACK", savedReview.getModelName(), "Model must be RULE_BASED_FALLBACK when API key is missing");
+        assertEquals(AiReviewStatus.FALLBACK_HUMAN_ONLY, savedReview.getStatus(), "Status must be FALLBACK_HUMAN_ONLY when API key is missing");
         assertEquals(AiReviewRecommendation.NEEDS_HUMAN_REVIEW, savedReview.getRecommendation());
         assertEquals(0.75, savedReview.getConfidenceScore());
 
-        // 6. Verify Admin approvals endpoint returns modelName = "RULE_BASED_FALLBACK"
+        // 6. Verify Admin approvals endpoint returns modelName = "RULE_BASED_FALLBACK" and status = FALLBACK_HUMAN_ONLY
         List<BookingController.ApprovalRequestResponse> approvals = bookingController.approvals(adminUser);
         var card = approvals.stream().filter(a -> a.id().equals(booking.getId())).findFirst().orElseThrow();
         assertNotNull(card.aiReview());
         assertEquals("RULE_BASED_FALLBACK", card.aiReview().modelName(), "Admin endpoint must return RULE_BASED_FALLBACK for rule-based fallback");
+        assertEquals(AiReviewStatus.FALLBACK_HUMAN_ONLY, card.aiReview().status());
         assertEquals(AiReviewRecommendation.NEEDS_HUMAN_REVIEW, card.aiReview().recommendation());
         assertEquals(0.75, card.aiReview().confidenceScore());
     }

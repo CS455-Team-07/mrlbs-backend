@@ -181,7 +181,7 @@ class BookingAiReviewConsumerTest {
         verify(reviewRepository).save(reviewCaptor.capture());
         BookingAiReview saved = reviewCaptor.getValue();
         assertEquals(bookingId, saved.getBookingId());
-        assertEquals(AiReviewStatus.COMPLETED, saved.getStatus());
+        assertEquals(AiReviewStatus.FALLBACK_HUMAN_ONLY, saved.getStatus());
         assertEquals(AiReviewRecommendation.NEEDS_HUMAN_REVIEW, saved.getRecommendation());
         assertEquals(0.75, saved.getConfidenceScore());
         assertEquals("RULE_BASED_FALLBACK", saved.getModelName());
