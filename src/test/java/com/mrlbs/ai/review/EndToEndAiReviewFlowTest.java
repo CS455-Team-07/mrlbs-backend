@@ -249,4 +249,83 @@ class EndToEndAiReviewFlowTest {
         assertEquals(0, initialBalance.compareTo(refundedAccount.getBalance()),
                 "Debited credits must be fully refunded upon admin rejection");
     }
+
+    @Test
+    void testAiOfflineFallback_whenApiKeyUnconfigured_routesToRuleBasedFallback_forAdminApproval() throws Exception {
+        String memberEmail = "offline-student@lab.edu";
+        String adminEmail = "admin@lab.edu";
+
+        OidcUser adminUser = createAdminUser(adminEmail);
+        var auth = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                adminUser, null, List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN")));
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(auth);
+
+        // 1. Setup Resource with APPROVAL_REQUIRED policy
+        LabResource resource = new LabResource(
+                "GPU Node Offline Test",
+                "GPU",
+                "CC 203",
+                4,
+                List.of(),
+                BigDecimal.ONE,
+                BigDecimal.valueOf(2.0),
+                BigDecimal.ZERO
+        );
+        BookingRule rule = new BookingRule();
+        rule.setBookingPolicy(BookingPolicy.APPROVAL_REQUIRED);
+        rule.setMinDurationMinutes(60);
+        rule.setMaxDurationMinutes(180);
+        rule.setBufferTimeMinutes(15);
+        rule.setMaxBookingsPerMember(3);
+        resource.setBookingRule(rule);
+        resource = resourceRepository.save(resource);
+
+        // 2. Member credit account
+        CreditAccount account = new CreditAccount(memberEmail, BigDecimal.valueOf(500.0));
+        creditAccountRepository.save(account);
+
+        // 3. Member submits approval-required booking
+        LocalDateTime start = LocalDateTime.now().plusDays(2).withHour(11).withMinute(0);
+        LocalDateTime end = start.plusHours(2);
+        Booking booking = bookingService.submit(memberEmail, new BookingRequest(resource.getId(), start, end));
+        assertEquals(BookingStatus.PENDING_APPROVAL, booking.getStatus());
+
+        List<BookingOutboxEvent> outboxEvents = outboxRepository.findByBookingId(booking.getId());
+        assertFalse(outboxEvents.isEmpty());
+        BookingOutboxEvent outboxEvent = outboxEvents.get(0);
+
+        // 4. Consumer runs with unconfigured GeminiClient (API key missing / offline)
+        com.mrlbs.ai.GeminiClient unconfiguredGemini = mock(com.mrlbs.ai.GeminiClient.class);
+        when(unconfiguredGemini.isConfigured()).thenReturn(false);
+
+        AiReviewAgentService fallbackAgentService = new AiReviewAgentService(unconfiguredGemini, objectMapper);
+        RequesterHistoryAnalyzer historyAnalyzer = mock(RequesterHistoryAnalyzer.class);
+        when(historyAnalyzer.analyzeRequesterHistory(any(), eq(resource.getId()), eq(booking.getId())))
+                .thenReturn(new RequesterHistoryProfile(
+                        booking.getMemberId(), resource.getId(), "GPU Node Offline Test",
+                        0, 0, 0, 0, 0,
+                        null, null, "NO_PRIOR_USAGE",
+                        null, false, "Device-level measurements only.", List.of()
+                ));
+
+        Channel channel = mock(Channel.class);
+        BookingAiReviewConsumer consumer = new BookingAiReviewConsumer(historyAnalyzer, fallbackAgentService, reviewRepository, objectMapper);
+
+        // Execute consumer message processing in offline mode
+        consumer.processBookingReview(outboxEvent.getPayload(), channel, 202L);
+
+        // 5. Verify review record was evaluated by RULE_BASED_FALLBACK
+        BookingAiReview savedReview = reviewRepository.findByBookingId(booking.getId()).orElseThrow();
+        assertEquals("RULE_BASED_FALLBACK", savedReview.getModelName(), "Model must be RULE_BASED_FALLBACK when API key is missing");
+        assertEquals(AiReviewRecommendation.NEEDS_HUMAN_REVIEW, savedReview.getRecommendation());
+        assertEquals(0.75, savedReview.getConfidenceScore());
+
+        // 6. Verify Admin approvals endpoint returns modelName = "RULE_BASED_FALLBACK"
+        List<BookingController.ApprovalRequestResponse> approvals = bookingController.approvals(adminUser);
+        var card = approvals.stream().filter(a -> a.id().equals(booking.getId())).findFirst().orElseThrow();
+        assertNotNull(card.aiReview());
+        assertEquals("RULE_BASED_FALLBACK", card.aiReview().modelName(), "Admin endpoint must return RULE_BASED_FALLBACK for rule-based fallback");
+        assertEquals(AiReviewRecommendation.NEEDS_HUMAN_REVIEW, card.aiReview().recommendation());
+        assertEquals(0.75, card.aiReview().confidenceScore());
+    }
 }

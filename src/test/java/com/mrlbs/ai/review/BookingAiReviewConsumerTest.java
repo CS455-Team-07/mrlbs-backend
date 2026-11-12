@@ -148,4 +148,46 @@ class BookingAiReviewConsumerTest {
         // Acks message to prevent queue blocking
         verify(channel).basicAck(eq(deliveryTag), eq(false));
     }
+
+    @Test
+    void testProcessBookingReview_GeminiUnconfigured_SavesRuleBasedFallbackWith75PercentConfidence() throws Exception {
+        UUID bookingId = UUID.randomUUID();
+        BookingReviewEvent event = createEvent(bookingId);
+        String payload = objectMapper.writeValueAsString(event);
+        long deliveryTag = 99L;
+
+        when(reviewRepository.findByBookingId(bookingId)).thenReturn(Optional.empty());
+
+        RequesterHistoryProfile profile = mock(RequesterHistoryProfile.class);
+        when(historyAnalyzer.analyzeRequesterHistory(eq(event.memberId()), eq(event.resourceId()), eq(bookingId)))
+                .thenReturn(profile);
+
+        AiReviewAgentService.ReviewEvaluationResult fallbackResult =
+                new AiReviewAgentService.ReviewEvaluationResult(
+                        AiReviewRecommendation.NEEDS_HUMAN_REVIEW,
+                        0.75,
+                        "Requester has no prior completed reservations on this resource to evaluate historical usage patterns. Admin review advised.",
+                        "Prior bookings total: 0 (Completed: 0, Cancelled: 0, Rejected: 0, Pending: 0)",
+                        "No completed reservations on this resource.",
+                        true,
+                        "RULE_BASED_FALLBACK"
+                );
+        when(agentService.evaluateBooking(eq(event), eq(profile)))
+                .thenReturn(fallbackResult);
+
+        consumer.processBookingReview(payload, channel, deliveryTag);
+
+        ArgumentCaptor<BookingAiReview> reviewCaptor = ArgumentCaptor.forClass(BookingAiReview.class);
+        verify(reviewRepository).save(reviewCaptor.capture());
+        BookingAiReview saved = reviewCaptor.getValue();
+        assertEquals(bookingId, saved.getBookingId());
+        assertEquals(AiReviewStatus.COMPLETED, saved.getStatus());
+        assertEquals(AiReviewRecommendation.NEEDS_HUMAN_REVIEW, saved.getRecommendation());
+        assertEquals(0.75, saved.getConfidenceScore());
+        assertEquals("RULE_BASED_FALLBACK", saved.getModelName());
+        assertEquals("Requester has no prior completed reservations on this resource to evaluate historical usage patterns. Admin review advised.", saved.getRationale());
+        assertTrue(saved.getSupportingEvidence().contains("Prior bookings total: 0"));
+
+        verify(channel).basicAck(eq(deliveryTag), eq(false));
+    }
 }
