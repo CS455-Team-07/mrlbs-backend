@@ -203,3 +203,9 @@ The backend incorporates an asynchronous, event-driven AI Request Review Agent t
 ## AI Engineering Log
 
 Meaningful AI-assisted engineering work is recorded in [AI_ENGINEERING_LOG.md](AI_ENGINEERING_LOG.md). [AGENTS.md](AGENTS.md) contains the workflow that future AI agents must follow.
+
+##To run a tesfile
+.\mvnw.cmd test -Dtest=FcfsBookingAndWaitlistTests '-Dspring.datasource.url=jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE'
+
+##to run all testfiles
+.\mvnw.cmd test '-Dtest=!LivePhase3VerificationTest,!LiveRabbitMqConnectionTest' '-Dspring.datasource.url=jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE'
